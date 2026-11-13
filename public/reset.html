@@ -77,41 +77,8 @@
     </div>
   </header>
   <!-- chrome:end -->
-  <header class="site-header">
-    <div class="container header-inner">
-      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>GoutouStdio</a>
-      <nav class="site-nav" id="site-nav" aria-label="主导航">
-        <ul>
-          <li><a href="/pyspos.html">PySpOS</a></li>
-          <li><a href="spaceos9.html">SpaceOS 9</a></li>
-          <li><a href="spaceos8.html">SpaceOS 8</a></li>
-          <li><a href="requirements.html">配置要求</a></li>
-          <li><details class="menu"><summary>下载<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-            <ul>
-              <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
-              <li><a href="ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
-              <li><a href="spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
-              <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
-            </ul>
-          </details></li>
-          <li><details class="menu"><summary>存档<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-            <ul>
-              <li><a href="spaceos7.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 7</a></li>
-              <li><a href="spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
-            </ul>
-          </details></li>
-          <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub<svg class="icon ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
-        </ul>
-      </nav>
-      <div class="header-actions">
-        <a class="icon-btn auth-link" id="auth-link" href="/login" title="登录" aria-label="登录"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="auth-name">登录</span></a>
-        <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题"><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
-        <button class="icon-btn nav-toggle" id="nav-toggle" type="button" aria-label="菜单" title="菜单" aria-controls="site-nav" aria-expanded="false"><svg class="icon icon-menu" aria-hidden="true"><use href="#i-menu"/></svg><svg class="icon icon-close" aria-hidden="true"><use href="#i-close"/></svg></button>
-      </div>
-    </div>
-  </header>
   <main id="main">
-    <section class="auth-wrap"><div class="container auth-card">
+    <section class="auth-wrap"><canvas id="auth-fx" aria-hidden="true"></canvas><div class="container auth-card">
 <h1>重置密码</h1><form id="auth-form" data-action="reset" novalidate><label>新密码（至少 8 位）<input name="password" type="password" autocomplete="new-password" required minlength="8"></label><p class="auth-msg" id="auth-msg" role="alert"></p><button class="button" type="submit">设置新密码</button></form>
     </div></section>
   </main>
@@ -162,6 +129,12 @@
     </div>
   </footer>
   <script src="/js/main.js"></script>
+  <script src="/js/vendor/gsap.min.js"></script>
+  <script src="/js/vendor/ScrollTrigger.min.js"></script>
+  <script src="/js/vendor/SplitText.min.js"></script>
+  <script src="/js/vendor/lenis.min.js"></script>
+  <script src="/js/motion.js"></script>
+  <script src="/js/auth-fx.js"></script>
   <script src="/js/page-auth.js"></script>
 </body>
 </html>

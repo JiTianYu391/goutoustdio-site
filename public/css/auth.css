@@ -17,3 +17,28 @@
 .auth-actions { display: flex; gap: var(--pg-space-4); align-items: center; margin-top: var(--pg-space-6, 2rem); }
 .linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--pg-accent); text-decoration: underline; cursor: pointer; }
 .linklike.danger { color: #ef4444; }
+
+/* 登录页特效 */
+.auth-wrap { position: relative; overflow: hidden; min-height: 70vh; }
+#auth-fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.auth-card { position: relative; padding: var(--pg-space-6, 2rem); border: 1px solid var(--pg-border, rgba(255,255,255,.12)); border-radius: 1rem;
+  background: color-mix(in srgb, var(--pg-bg, #0a0c13) 72%, transparent); backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 1px transparent, 0 20px 60px -20px rgba(124,108,255,.35); animation: auth-in .7s cubic-bezier(.2,.8,.2,1) both; }
+.auth-card::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: conic-gradient(from var(--auth-a, 0deg), transparent 0 60%, var(--pg-ref-violet, #7c6cff), var(--pg-ref-cyan, #22d3ee), transparent);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: auth-spin 6s linear infinite; }
+@property --auth-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes auth-spin { to { --auth-a: 360deg; } }
+@keyframes auth-in { from { opacity: 0; transform: translateY(18px) scale(.98); } }
+.auth-card h1 { background: linear-gradient(90deg, var(--pg-ref-violet, #7c6cff), var(--pg-ref-cyan, #22d3ee)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.auth-card input { transition: border-color .2s, box-shadow .2s; }
+.auth-card input:focus { border-color: var(--pg-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pg-accent) 25%, transparent); }
+.auth-card form > label { animation: auth-in .6s cubic-bezier(.2,.8,.2,1) both; }
+.auth-card form > label:nth-child(2) { animation-delay: .08s; } .auth-card form > label:nth-child(3) { animation-delay: .16s; }
+.auth-card .button { position: relative; overflow: hidden; }
+.auth-card .button::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); transform: translateX(-120%); transition: transform .6s; }
+.auth-card .button:hover::after { transform: translateX(120%); }
+.auth-card.shake { animation: auth-shake .4s; }
+@keyframes auth-shake { 20%,60% { transform: translateX(-7px); } 40%,80% { transform: translateX(7px); } }
+@media (prefers-reduced-motion: reduce) { .auth-card, .auth-card::before, .auth-card form > label { animation: none; } #auth-fx { display: none; } }
