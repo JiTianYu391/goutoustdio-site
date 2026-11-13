@@ -17,7 +17,13 @@ app.disable("x-powered-by");
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
-    directives: { "script-src": ["'self'"], "img-src": ["'self'", "data:"], "upgrade-insecure-requests": null },
+    directives: {
+      // Cloudflare 会自动注入 Web Analytics 脚本（含一段内联初始化），这里放行它和截图所在的 raw.githubusercontent.com
+      "script-src": ["'self'", "https://static.cloudflareinsights.com", "'sha256-f3hdOU1QscqxHyyMkQCCyaLeNK4GEvqsgMC25eSfQ+k='"],
+      "connect-src": ["'self'", "https://cloudflareinsights.com"],
+      "img-src": ["'self'", "data:", "https://raw.githubusercontent.com"],
+      "upgrade-insecure-requests": null,
+    },
   },
   crossOriginEmbedderPolicy: false,
 }));
