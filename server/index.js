@@ -45,7 +45,7 @@ function sendVerify(req, uid, email) {
   sendMail(email, "验证你的 GoutouStdio 账号邮箱", "点击下面的链接验证邮箱（24 小时内有效）：", `${base(req)}/verify?token=${t}`)
     .catch((err) => console.error("[mail]", err.message));
 }
-const pub_ = (u) => ({ id: u.id, username: u.username, email: u.email, role: u.role, emailVerified: !!u.email_verified, createdAt: u.created_at });
+const pub_ = (u) => ({ id: u.id, username: u.username, email: u.email, role: u.role, displayName: u.display_name || "", bio: u.bio || "", emailVerified: !!u.email_verified, createdAt: u.created_at });
 const USER_RE = /^[A-Za-z0-9_一-龥-]{2,24}$/;
 const MAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const str = (v) => (typeof v === "string" ? v : "");
@@ -63,7 +63,7 @@ app.post("/api/register", authLimit, async (req, res) => {
     .run(username, email, hash, admin ? "admin" : "user", Date.now());
   const uid = Number(r.lastInsertRowid);
   sendVerify(req, uid, email);
-  A.setCookie(res, A.createSession(uid));
+  A.setCookie(res, A.createSession(uid, req));
   res.status(201).json({ user: pub_(db.prepare("SELECT * FROM users WHERE id=?").get(r.lastInsertRowid)) });
 });
 
@@ -73,7 +73,7 @@ app.post("/api/login", authLimit, async (req, res) => {
   // 用户不存在时也做一次哈希，避免时序差异泄露账号是否存在
   const ok = u ? await A.verifyPassword(password, u.password_hash) : (await A.hashPassword(password), false);
   if (!ok) return res.status(401).json({ error: "账号或密码错误" });
-  A.setCookie(res, A.createSession(u.id));
+  A.setCookie(res, A.createSession(u.id, req));
   res.json({ user: pub_(u) });
 });
 
@@ -130,9 +130,65 @@ app.post("/api/password", need, authLimit, async (req, res) => {
 
 app.delete("/api/account", need, authLimit, async (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id);
+  if (str(req.body.confirm).trim().toLowerCase() !== u.username.toLowerCase()) return res.status(400).json({ error: "请输入你的用户名以确认注销" });
   if (!(await A.verifyPassword(str(req.body.password), u.password_hash))) return res.status(401).json({ error: "密码错误" });
   db.prepare("DELETE FROM users WHERE id=?").run(u.id);
   res.clearCookie(A.COOKIE, { path: "/" });
+  res.json({ ok: true });
+});
+
+app.patch("/api/profile", need, (req, res) => {
+  const displayName = str(req.body.displayName).trim(), bio = str(req.body.bio).trim();
+  if (displayName.length > 32) return res.status(400).json({ error: "昵称最多 32 字" });
+  if (bio.length > 200) return res.status(400).json({ error: "简介最多 200 字" });
+  db.prepare("UPDATE users SET display_name=?, bio=? WHERE id=?").run(displayName, bio, req.user.id);
+  res.json({ user: pub_(db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id)) });
+});
+
+// 改邮箱：需当前密码；新邮箱重新验证
+app.post("/api/email", need, authLimit, async (req, res) => {
+  const email = str(req.body.email).trim();
+  if (!MAIL_RE.test(email)) return res.status(400).json({ error: "邮箱格式不正确" });
+  const u = db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id);
+  if (!(await A.verifyPassword(str(req.body.password), u.password_hash))) return res.status(401).json({ error: "密码错误" });
+  if (db.prepare("SELECT 1 FROM users WHERE email=? AND id<>?").get(email, u.id)) return res.status(409).json({ error: "该邮箱已被使用" });
+  db.prepare("UPDATE users SET email=?, email_verified=0 WHERE id=?").run(email, u.id);
+  sendVerify(req, u.id, email);
+  res.json({ user: pub_(db.prepare("SELECT * FROM users WHERE id=?").get(u.id)) });
+});
+
+app.get("/api/sessions", need, (req, res) => res.json({ sessions: A.listSessions(req.user.id, req.user.sid) }));
+app.post("/api/sessions/revoke-others", need, (req, res) => { A.destroyUserSessions(req.user.id, req.cookies[A.COOKIE]); res.json({ ok: true }); });
+app.delete("/api/sessions/:handle", need, (req, res) => {
+  A.revokeHandle(req.user.id, String(req.params.handle).slice(0, 16));
+  res.json({ ok: true });
+});
+
+// ---- 评论：每个页面一个讨论区；登录且验证邮箱后可发言 ----
+const PAGE_RE = /^[a-z0-9-]{1,40}$/;
+const postLimit = rateLimit({ windowMs: 60 * 1000, limit: 6, standardHeaders: true, legacyHeaders: false,
+  message: { error: "发言太快了，请稍后再试" } });
+app.get("/api/comments", (req, res) => {
+  const page = str(req.query.page);
+  if (!PAGE_RE.test(page)) return res.status(400).json({ error: "页面参数无效" });
+  const rows = db.prepare(`SELECT c.id, c.body, c.created_at, u.id AS uid, u.username, u.display_name, u.role
+    FROM comments c JOIN users u ON u.id=c.user_id WHERE c.page=? ORDER BY c.id DESC LIMIT 100`).all(page);
+  res.json({ comments: rows.map((r) => ({ id: r.id, body: r.body, createdAt: r.created_at, author: r.display_name || r.username,
+    admin: r.role === "admin", mine: req.user?.id === r.uid })), canPost: !!req.user?.email_verified, loggedIn: !!req.user, isAdmin: req.user?.role === "admin" });
+});
+app.post("/api/comments", need, postLimit, (req, res) => {
+  const page = str(req.body.page), body = str(req.body.body).trim();
+  if (!PAGE_RE.test(page)) return res.status(400).json({ error: "页面参数无效" });
+  if (!req.user.email_verified) return res.status(403).json({ error: "请先验证邮箱后再发言" });
+  if (body.length < 1 || body.length > 1000) return res.status(400).json({ error: "内容需为 1–1000 字" });
+  db.prepare("INSERT INTO comments (page,user_id,body,created_at) VALUES (?,?,?,?)").run(page, req.user.id, body, Date.now());
+  res.status(201).json({ ok: true });
+});
+app.delete("/api/comments/:id", need, (req, res) => {
+  const c = db.prepare("SELECT * FROM comments WHERE id=?").get(Number(req.params.id));
+  if (!c) return res.status(404).json({ error: "不存在" });
+  if (c.user_id !== req.user.id && req.user.role !== "admin") return res.status(403).json({ error: "无权限" });
+  db.prepare("DELETE FROM comments WHERE id=?").run(c.id);
   res.json({ ok: true });
 });
 

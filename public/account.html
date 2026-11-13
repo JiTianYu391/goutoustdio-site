@@ -78,14 +78,51 @@
   </header>
   <!-- chrome:end -->
   <main id="main">
-    <section class="auth-wrap"><canvas id="auth-fx" aria-hidden="true"></canvas><div class="container auth-card">
-<h1>账号</h1>
-<dl class="auth-profile" id="profile"></dl>
-<p class="auth-msg" id="verify-banner" hidden>邮箱尚未验证。<button class="linklike" id="resend" type="button">重新发送验证邮件</button></p>
-<h2>修改密码</h2><form id="auth-form" data-action="password" novalidate><label>当前密码<input name="current" type="password" autocomplete="current-password" required ></label><label>新密码（至少 8 位）<input name="next" type="password" autocomplete="new-password" required minlength="8"></label><p class="auth-msg" id="auth-msg" role="alert"></p><button class="button" type="submit">修改密码</button></form>
-<div class="auth-actions"><button class="button button-secondary" id="logout" type="button">退出登录</button>
-<button class="linklike danger" id="delete" type="button">注销账号</button></div>
-    </div></section>
+    <section class="acct container">
+      <h1>账号</h1>
+      <div class="acct-layout">
+        <nav class="acct-tabs" role="tablist" aria-label="账号设置">
+          <button role="tab" data-tab="profile" aria-selected="true">资料</button>
+          <button role="tab" data-tab="security" aria-selected="false">安全</button>
+          <button role="tab" data-tab="sessions" aria-selected="false">登录设备</button>
+          <button role="tab" data-tab="danger" aria-selected="false">危险操作</button>
+        </nav>
+        <div class="acct-panels">
+          <section data-panel="profile">
+            <div class="acct-id"><span class="acct-avatar" id="avatar" aria-hidden="true"></span><div><strong id="who"></strong><div class="acct-sub" id="who-sub"></div></div></div>
+            <p class="acct-banner" id="verify-banner" hidden>邮箱尚未验证，验证后才能发表评论。<button class="linklike" id="resend" type="button">重新发送验证邮件</button></p>
+            <form class="acct-form" id="f-profile"><h2>公开资料</h2>
+              <label>昵称（留空则显示用户名）<input name="displayName" maxlength="32"></label>
+              <label>个人简介<textarea name="bio" maxlength="200" rows="3"></textarea></label>
+              <p class="auth-msg" role="alert"></p><button class="button" type="submit">保存</button></form>
+          </section>
+          <section data-panel="security" hidden>
+            <form class="acct-form" id="f-password"><h2>修改密码</h2>
+              <label>当前密码<input name="current" type="password" autocomplete="current-password" required></label>
+              <label>新密码（至少 8 位）<input name="next" type="password" autocomplete="new-password" minlength="8" required></label>
+              <p class="auth-msg" role="alert"></p><button class="button" type="submit">修改密码</button></form>
+            <form class="acct-form" id="f-email"><h2>更换邮箱</h2>
+              <p class="acct-sub">更换后需要重新验证新邮箱。</p>
+              <label>新邮箱<input name="email" type="email" autocomplete="email" required></label>
+              <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
+              <p class="auth-msg" role="alert"></p><button class="button" type="submit">更换邮箱</button></form>
+          </section>
+          <section data-panel="sessions" hidden>
+            <h2>登录设备</h2><p class="acct-sub">这些设备当前保持着登录状态。不认识的设备可以立即下线。</p>
+            <ul class="acct-sessions" id="sessions"></ul>
+            <button class="button button-secondary" id="revoke-others" type="button">退出其他所有设备</button>
+            <button class="button button-secondary" id="logout" type="button">退出当前设备</button>
+          </section>
+          <section data-panel="danger" hidden>
+            <form class="acct-form acct-danger" id="f-delete"><h2>注销账号</h2>
+              <p class="acct-sub">将永久删除账号和你发表的所有评论，无法恢复。</p>
+              <label>输入你的用户名 <b id="del-name"></b> 以确认<input name="confirm" autocomplete="off" required></label>
+              <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
+              <p class="auth-msg" role="alert"></p><button class="button danger-btn" type="submit">永久注销</button></form>
+          </section>
+        </div>
+      </div>
+    </section>
   </main>
   <footer class="site-footer">
     <div class="container footer-grid">
@@ -139,7 +176,6 @@
   <script src="/js/vendor/SplitText.min.js"></script>
   <script src="/js/vendor/lenis.min.js"></script>
   <script src="/js/motion.js"></script>
-  <script src="/js/auth-fx.js"></script>
-  <script src="/js/page-auth.js"></script>
+  <script src="/js/account.js"></script>
 </body>
 </html>

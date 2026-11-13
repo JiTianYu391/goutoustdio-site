@@ -20,10 +20,11 @@ export async function verifyPassword(pw, stored) {
 }
 const sha = (t) => crypto.createHash("sha256").update(t).digest("hex");
 
-export function createSession(userId) {
+export function createSession(userId, req) {
   const token = crypto.randomBytes(32).toString("base64url");
-  db.prepare("INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)")
-    .run(sha(token), userId, Date.now() + SESSION_MS);
+  const now = Date.now();
+  db.prepare("INSERT INTO sessions (id, user_id, expires_at, created_at, last_seen, ua, ip) VALUES (?,?,?,?,?,?,?)")
+    .run(sha(token), userId, now + SESSION_MS, now, now, String(req?.get("user-agent") || "").slice(0, 300), String(req?.ip || "").slice(0, 64));
   return token;
 }
 export function destroySession(token) {
@@ -34,11 +35,25 @@ export function destroyUserSessions(userId, exceptToken) {
 }
 export function sessionUser(token) {
   if (!token) return null;
-  const row = db.prepare(`SELECT u.id, u.username, u.email, u.role, u.email_verified, u.created_at, s.expires_at
+  const row = db.prepare(`SELECT u.id, u.username, u.email, u.role, u.email_verified, u.display_name, u.bio, u.created_at, s.expires_at, s.last_seen, s.id AS sid
     FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=?`).get(sha(token));
   if (!row) return null;
   if (row.expires_at < Date.now()) { destroySession(token); return null; }
+  if (Date.now() - row.last_seen > 5 * 60 * 1000) db.prepare("UPDATE sessions SET last_seen=? WHERE id=?").run(Date.now(), row.sid);
   return row;
+}
+export function listSessions(userId, currentSid) {
+  return db.prepare("SELECT id, created_at, last_seen, ua, ip FROM sessions WHERE user_id=? AND expires_at>? ORDER BY last_seen DESC")
+    .all(userId, Date.now()).map((r) => ({ handle: r.id.slice(0, 16), current: r.id === currentSid, createdAt: r.created_at,
+      lastSeen: r.last_seen, ip: r.ip, device: describeUA(r.ua) }));
+}
+export function revokeHandle(userId, handle) {
+  return db.prepare("DELETE FROM sessions WHERE user_id=? AND substr(id,1,16)=?").run(userId, handle).changes;
+}
+function describeUA(ua) {
+  const b = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "未知浏览器";
+  const o = /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Mac OS/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "未知系统";
+  return `${b} · ${o}`;
 }
 export function setCookie(res, token) {
   res.cookie(COOKIE, token, {

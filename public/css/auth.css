@@ -42,3 +42,43 @@
 .auth-card.shake { animation: auth-shake .4s; }
 @keyframes auth-shake { 20%,60% { transform: translateX(-7px); } 40%,80% { transform: translateX(7px); } }
 @media (prefers-reduced-motion: reduce) { .auth-card, .auth-card::before, .auth-card form > label { animation: none; } #auth-fx { display: none; } }
+
+/* 账号页 */
+.acct { padding: calc(var(--pg-space-8, 4rem) + 2rem) 0 var(--pg-space-8, 4rem); }
+.acct h1 { font-size: var(--pg-text-2xl); margin-bottom: var(--pg-space-5, 1.25rem); }
+.acct-layout { display: grid; grid-template-columns: 12rem 1fr; gap: var(--pg-space-6, 2rem); align-items: start; }
+@media (max-width: 720px) { .acct-layout { grid-template-columns: 1fr; } .acct-tabs { flex-direction: row !important; overflow-x: auto; } }
+.acct-tabs { display: flex; flex-direction: column; gap: var(--pg-space-1); }
+.acct-tabs button { font: inherit; text-align: left; background: none; border: 0; border-radius: .5rem; padding: .6rem .9rem; color: var(--pg-fg-2, inherit); cursor: pointer; white-space: nowrap; }
+.acct-tabs button:hover { background: var(--pg-accent-soft); color: var(--pg-fg-1); }
+.acct-tabs button[aria-selected="true"] { background: var(--pg-accent-soft); color: var(--pg-fg-1); font-weight: 650; box-shadow: inset 2px 0 var(--pg-accent); }
+.acct-panels { max-width: 34rem; display: grid; gap: var(--pg-space-6, 2rem); }
+.acct-panels [hidden] { display: none; }
+.acct-panels section { display: grid; gap: var(--pg-space-5, 1.25rem); }
+.acct-panels h2 { font-size: var(--pg-text-lg); }
+.acct-form { display: grid; gap: var(--pg-space-4); padding: var(--pg-space-5, 1.25rem); border: 1px solid var(--pg-border, rgba(255,255,255,.12)); border-radius: .75rem; }
+.acct-form label { display: grid; gap: var(--pg-space-1); font-size: var(--pg-text-xs); }
+.acct-form input, .acct-form textarea, .cm-form textarea { font: inherit; color: var(--pg-fg-1); background: transparent; border: 1px solid var(--pg-border, currentColor); border-radius: .5rem; padding: .65rem .8rem; resize: vertical; }
+.acct-form input:focus-visible, .acct-form textarea:focus-visible, .cm-form textarea:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 1px; }
+.acct-form .button { justify-self: start; }
+.acct-sub { font-size: var(--pg-text-xs); color: var(--pg-fg-3, inherit); }
+.acct-id { display: flex; gap: var(--pg-space-4); align-items: center; }
+.acct-avatar { width: 3rem; height: 3rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--pg-ref-violet, #7c6cff), var(--pg-ref-cyan, #22d3ee)); }
+.acct-banner { padding: .7rem 1rem; border-radius: .5rem; background: color-mix(in srgb, var(--pg-accent) 14%, transparent); font-size: var(--pg-text-xs); }
+.acct-sessions { list-style: none; padding: 0; display: grid; gap: var(--pg-space-3); }
+.acct-sessions li { display: flex; justify-content: space-between; gap: var(--pg-space-4); align-items: center; padding: .8rem 1rem; border: 1px solid var(--pg-border, rgba(255,255,255,.12)); border-radius: .6rem; }
+.acct-danger { border-color: #ef4444; }
+.danger-btn { background: #ef4444 !important; border-color: #ef4444 !important; }
+/* 评论区 */
+.comments { padding: var(--pg-space-8, 4rem) 0; max-width: 46rem; }
+.comments h2 { font-size: var(--pg-text-xl); margin-bottom: var(--pg-space-4); }
+.cm-hint { font-size: var(--pg-text-sm); margin-bottom: var(--pg-space-4); }
+.cm-form { display: grid; gap: var(--pg-space-3); margin-bottom: var(--pg-space-5, 1.25rem); }
+.cm-form .button { justify-self: start; }
+.cm-list { list-style: none; padding: 0; display: grid; gap: var(--pg-space-4); }
+.cm-list li { padding: var(--pg-space-4); border: 1px solid var(--pg-border, rgba(255,255,255,.12)); border-radius: .75rem; }
+.cm-head { display: flex; gap: var(--pg-space-3); align-items: baseline; flex-wrap: wrap; font-size: var(--pg-text-xs); }
+.cm-head time { color: var(--pg-fg-3, inherit); margin-right: auto; }
+.cm-badge { font-size: var(--pg-text-2xs); padding: .1rem .45rem; border-radius: 999px; background: var(--pg-accent-soft); color: var(--pg-accent); }
+.cm-body { margin-top: var(--pg-space-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cm-empty { color: var(--pg-fg-3, inherit); }
