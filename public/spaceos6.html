@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="PySpOS、SpaceOS 9 和 SpaceOS 8 各自需要的软硬件环境，以及 SpaceOS 8 的构建工具链。">
-  <title>配置要求 | GoutouStdio</title>
+  <meta name="description" content="SpaceOS 6（已停更）：基于 Uinxed-Kernel 的桌面操作系统，带 SPUI 1.0、SPF Parser 2.0 和 SPFS 2.0 文件系统。本页仅作存档。">
+  <title>SpaceOS 6（已停更） | GoutouStdio</title>
   <!-- head:start -->
   <link rel="stylesheet" href="css/tokens.css?v=87f53e71">
   <link rel="stylesheet" href="css/style.css?v=28bae9f1">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d97757'/%3E%3Ctext x='32' y='44' font-size='34' font-weight='700' text-anchor='middle' fill='%23faf9f5' font-family='Georgia,serif'%3EG%3C/text%3E%3C/svg%3E">
   <!-- head:end -->
+  <link rel="stylesheet" href="/css/auth.css">
 </head>
 <body>
   <!-- chrome:start -->
@@ -50,7 +51,7 @@
           <li><a href="pyspos.html">PySpOS</a></li>
           <li><a href="spaceos9.html">SpaceOS 9</a></li>
           <li><a href="spaceos8.html">SpaceOS 8</a></li>
-          <li><a href="requirements.html" aria-current="page">配置要求</a></li>
+          <li><a href="requirements.html">配置要求</a></li>
           <li><details class="menu"><summary>下载<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
             <ul>
               <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
@@ -59,16 +60,17 @@
               <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
             </ul>
           </details></li>
-          <li><details class="menu"><summary>存档<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <li><details class="menu is-current"><summary>存档<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
             <ul>
               <li><a href="spaceos7.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 7</a></li>
-              <li><a href="spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
+              <li><a href="spaceos6.html" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
             </ul>
           </details></li>
           <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub<svg class="icon ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
         </ul>
       </nav>
       <div class="header-actions">
+        <a class="icon-btn auth-link" id="auth-link" href="/login" title="登录" aria-label="登录"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="auth-name">登录</span></a>
         <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题"><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
         <button class="icon-btn nav-toggle" id="nav-toggle" type="button" aria-label="菜单" title="菜单" aria-controls="site-nav" aria-expanded="false"><svg class="icon icon-menu" aria-hidden="true"><use href="#i-menu"/></svg><svg class="icon icon-close" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>
@@ -78,8 +80,16 @@
   <main id="main">
     <section class="hero hero-compact">
       <div class="container">
-        <h1>配置要求</h1>
-        <p class="lede">按产品列出最低配置和推荐配置。最低配置能运行，推荐配置体验更好。</p>
+        <p class="hero-badge"><span class="badge">已停更</span></p>
+        <h1>SpaceOS 6</h1>
+        <p class="lede">基于 Uinxed-Kernel 的桌面系统，带 SPUI 1.0 界面和 SPFS 2.0 文件系统。这是团队第一次接触 UEFI。</p>
+        <dl class="spec">
+          <div><dt>版本</dt><dd>6.0</dd></div>
+          <div><dt>首次发布</dt><dd>2024</dd></div>
+          <div><dt>桌面环境</dt><dd>SPUI 1.0</dd></div>
+          <div><dt>文件系统</dt><dd>SPFS 2.0</dd></div>
+          <div><dt>架构</dt><dd>x86</dd></div>
+        </dl>
       </div>
     </section>
 
@@ -88,79 +98,44 @@
         <nav class="page-toc doc-toc" aria-label="本页目录">
           <p class="doc-toc-title">本页目录</p>
           <ul>
-          <li><a href="#pyspos">PySpOS 3.2.0</a></li>
-          <li><a href="#spaceos9">SpaceOS 9 公开预览</a></li>
-          <li><a href="#spaceos8">SpaceOS 8</a></li>
-          <li><a href="#retired">SpaceOS 6 / 7</a></li>
+          <li><a href="#intro">背景</a></li>
+          <li><a href="#features">做到的部分</a></li>
+          <li><a href="#tech">内核</a></li>
+          <li><a href="#reqs">当年的配置要求</a></li>
           </ul>
         </nav>
         <article class="prose">
-          <h2 id="pyspos">PySpOS 3.2.0</h2>
-          <p>纯用户态程序，能跑 Python 就能跑。</p>
-          <div class="table-wrap">
-            <table data-keep-labels>
-              <thead>
-                <tr><th scope="col">项目</th><th scope="col">最低配置</th><th scope="col">推荐配置</th></tr>
-              </thead>
-              <tbody>
-                <tr><th scope="row">Python</th><td>3.10</td><td>3.12 或 3.14（CI 测过的版本）</td></tr>
-                <tr><th scope="row">系统</th><td>Windows 7、主流 Linux、macOS 10.14</td><td>同左</td></tr>
-                <tr><th scope="row">处理器</th><td>双核</td><td>同左</td></tr>
-                <tr><th scope="row">内存</th><td>512 MB</td><td>同左</td></tr>
-                <tr><th scope="row">存储</th><td>120 MB 可用空间</td><td>同左</td></tr>
-                <tr><th scope="row">终端</th><td>80×24 字符</td><td>同左</td></tr>
-                <tr><th scope="row">可选依赖</th><td>无</td><td><code>unicorn</code>（ELF 引擎）、<code>tzdata</code>（真实时区）</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p>不需要管理员权限和独立显卡。缺 <code>unicorn</code> 时退回自研模拟器，Windows 和精简容器镜像需要 <code>tzdata</code> 才有真实时区。</p>
-
-          <h2 id="spaceos9">SpaceOS 9 公开预览</h2>
-          <p>目前只在 QEMU 上验证过。</p>
-          <div class="table-wrap">
-            <table data-keep-labels>
-              <thead>
-                <tr><th scope="col">项目</th><th scope="col">最低配置</th><th scope="col">推荐配置</th></tr>
-              </thead>
-              <tbody>
-                <tr><th scope="row">平台</th><td>x86_64 QEMU</td><td>x86_64 QEMU，Q35 机型</td></tr>
-                <tr><th scope="row">固件</th><td>OVMF（UEFI）</td><td>同左</td></tr>
-                <tr><th scope="row">内存</th><td>512 MiB</td><td>同左</td></tr>
-                <tr><th scope="row">显示</th><td>—</td><td>VirtIO GPU 2D</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p>真实硬件、GPU、音频、网络和睡眠唤醒都没有验证。aarch64 / riscv64 只通过编译检查，镜像里没有它们的用户态。启动命令见<a href="spaceos9-download.html#boot">下载页</a>。</p>
-
-          <h2 id="spaceos8">SpaceOS 8</h2>
       <div class="notice notice-warn" role="note">
-        <svg class="icon notice-icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <svg class="icon notice-icon" aria-hidden="true"><use href="#i-archive"/></svg>
         <div>
-          <p class="notice-title">请用可抛弃的机器和测试盘</p>
-          <p>NTFS 写入驱动还不能信任，不要让它碰重要数据。</p>
+          <p class="notice-title">这个项目已停止开发，本页仅作存档</p>
+          <p>不再维护，不接受 issue 或功能请求。目前在维护的是 <a href="pyspos.html">PySpOS</a> 和 <a href="spaceos9.html">SpaceOS 9</a>。</p>
         </div>
       </div>
-          <div class="table-wrap">
-            <table data-keep-labels>
-              <thead>
-                <tr><th scope="col">项目</th><th scope="col">最低配置</th><th scope="col">推荐配置</th></tr>
-              </thead>
-              <tbody>
-                <tr><th scope="row">处理器</th><td>x86_64</td><td>x86_64 多核（支持 SMP）</td></tr>
-                <tr><th scope="row">内存</th><td>128 MB</td><td>1 GB 以上（图形桌面 + swap）</td></tr>
-                <tr><th scope="row">固件</th><td>UEFI 或 Legacy BIOS</td><td>UEFI（已验证）</td></tr>
-                <tr><th scope="row">显示</th><td>GOP 帧缓冲</td><td>VirtIO-GPU；真实显卡驱动未完成</td></tr>
-                <tr><th scope="row">存储</th><td>不需要（默认根是 tmpfs）</td><td>IDE / AHCI / NVMe / USB 存储</td></tr>
-                <tr><th scope="row">输入</th><td>PS/2 键盘和鼠标</td><td>USB 键盘和鼠标（xHCI，已验证）</td></tr>
-                <tr><th scope="row">网络</th><td>可以不接</td><td>Intel e1000 / e1000e 或 Realtek RTL8139 / RTL8169</td></tr>
-                <tr><th scope="row">音频</th><td>可以没有</td><td>Intel HD Audio</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p>VirtIO 和 SB16 声卡默认关闭，要用 <code>make menuconfig</code> 打开。实体机已在 Dell PowerEdge R410 上验证。构建依赖见 <a href="spaceos8.html#run">SpaceOS 8 介绍</a>。</p>
 
-          <h2 id="retired">SpaceOS 6 / 7</h2>
-          <p>已停止开发，不再列配置要求。见 <a href="spaceos7.html">SpaceOS 7</a> 和 <a href="spaceos6.html">SpaceOS 6</a> 存档页。</p>
+          <h2 id="intro">背景</h2>
+          <p>2024 年开始，在 ViudiraTech 的 Uinxed-Kernel 上深度定制。界面、文件系统和驱动是自己做的。</p>
+
+          <h2 id="features">做到的部分</h2>
+          <ul>
+            <li><strong>SPUI 1.0</strong>：自研桌面，有窗口管理、任务栏和开始菜单。</li>
+            <li><strong>SPF Parser 2.0</strong>：执行 SPF 可执行文件，支持更多系统调用。</li>
+            <li><strong>SPFS 2.0</strong>：自研文件系统，带权限管理和日志。</li>
+            <li><strong>存储</strong>：IDE / AHCI / NVMe，MBR 与 GPT 分区表，可以多系统部署。</li>
+            <li><strong>音频</strong>：SB16 驱动，支持 PCM 播放和 MIDI。</li>
+            <li><strong>图片</strong>：原生 JPG 解析，不依赖第三方库。</li>
+          </ul>
+
+          <h2 id="tech">内核</h2>
+          <p>Uinxed-Kernel 是 64 位宏内核，运行在 Ring 0。调度、内存、文件系统和驱动都在内核空间，内存有分页和保护。</p>
+
+          <h2 id="reqs">当年的配置要求</h2>
+          <ul>
+            <li>Pentium 及以上的 x86 处理器。</li>
+            <li>内存 64 MB，推荐 128 MB 以上。</li>
+            <li>500 MB 可用空间。</li>
+            <li>VESA 兼容显卡，800×600。</li>
+          </ul>
         </article>
       </div>
     </section>
@@ -192,7 +167,7 @@
       <nav>
         <h2 class="footer-title">资料</h2>
         <ul>
-          <li><a href="requirements.html" aria-current="page">配置要求</a></li>
+          <li><a href="requirements.html">配置要求</a></li>
           <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub</a></li>
           <li><a href="index.html#contact">联系我们</a></li>
         </ul>
@@ -201,7 +176,7 @@
         <h2 class="footer-title">存档</h2>
         <ul>
           <li><a href="spaceos7.html">SpaceOS 7</a></li>
-          <li><a href="spaceos6.html">SpaceOS 6</a></li>
+          <li><a href="spaceos6.html" aria-current="page">SpaceOS 6</a></li>
         </ul>
       </nav>
     </div>
@@ -219,5 +194,6 @@
   <script src="js/vendor/lenis.min.js?v=8b680cc6"></script>
   <script src="js/motion.js?v=e2611ba9"></script>
   <!-- foot:end -->
+  <script src="/js/auth.js"></script>
 </body>
 </html>

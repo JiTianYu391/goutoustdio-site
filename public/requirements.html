@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="PySpOS、SpaceOS 9 和 SpaceOS 8 各自需要的软硬件环境，以及 SpaceOS 8 的构建工具链。">
+  <title>配置要求 | GoutouStdio</title>
+  <!-- head:start -->
+  <link rel="stylesheet" href="css/tokens.css?v=87f53e71">
+  <link rel="stylesheet" href="css/style.css?v=28bae9f1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d97757'/%3E%3Ctext x='32' y='44' font-size='34' font-weight='700' text-anchor='middle' fill='%23faf9f5' font-family='Georgia,serif'%3EG%3C/text%3E%3C/svg%3E">
+  <!-- head:end -->
+  <link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <!-- chrome:start -->
+  <script src="js/theme-init.js?v=a32b4cdf"></script>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/><rect x="10" y="10" width="4" height="4" rx=".5"/><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3"/></symbol>
+    <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M3 9.5h18M6.5 7h.01M9 7h.01"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 4.5-9 4.5-9-4.5z"/><path d="M3 12.5l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/></symbol>
+    <symbol id="i-fork" viewBox="0 0 24 24"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="9" r="2"/><path d="M6.5 7.5v9M17.5 11c0 3.5-4 4.5-9 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13M13.5 4.5L17 8l-3.5 3.5M20 16H7M10.5 12.5L7 16l3.5 3.5"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3.5v5M15 3.5v5M6.5 8.5h11v3.5a5.5 5.5 0 0 1-11 0zM12 17.5v3"/></symbol>
+    <symbol id="i-disk" viewBox="0 0 24 24"><ellipse cx="12" cy="6.5" rx="7.5" ry="3"/><path d="M4.5 6.5v11c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-11M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6.5" rx="2"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="2"/><path d="M7 7.25h.01M7 16.75h.01"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4.5 7.5l7.5 6 7.5-6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5l7 2.5v5.5c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6z"/><path d="M8.8 12l2.4 2.4 4-4.4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5.5 3.5-5.5 3.5z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  </svg>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>GoutouStdio</a>
+      <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <ul>
+          <li><a href="pyspos.html">PySpOS</a></li>
+          <li><a href="spaceos9.html">SpaceOS 9</a></li>
+          <li><a href="spaceos8.html">SpaceOS 8</a></li>
+          <li><a href="requirements.html" aria-current="page">配置要求</a></li>
+          <li><details class="menu"><summary>下载<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul>
+              <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
+              <li><a href="ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
+              <li><a href="spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
+              <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
+            </ul>
+          </details></li>
+          <li><details class="menu"><summary>存档<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul>
+              <li><a href="spaceos7.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 7</a></li>
+              <li><a href="spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
+            </ul>
+          </details></li>
+          <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub<svg class="icon ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
+        </ul>
+      </nav>
+      <div class="header-actions">
+        <a class="icon-btn auth-link" id="auth-link" href="/login" title="登录" aria-label="登录"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="auth-name">登录</span></a>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题"><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button class="icon-btn nav-toggle" id="nav-toggle" type="button" aria-label="菜单" title="菜单" aria-controls="site-nav" aria-expanded="false"><svg class="icon icon-menu" aria-hidden="true"><use href="#i-menu"/></svg><svg class="icon icon-close" aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+  </header>
+  <!-- chrome:end -->
+  <main id="main">
+    <section class="hero hero-compact">
+      <div class="container">
+        <h1>配置要求</h1>
+        <p class="lede">按产品列出最低配置和推荐配置。最低配置能运行，推荐配置体验更好。</p>
+      </div>
+    </section>
+
+    <section class="section doc-section">
+      <div class="container doc">
+        <nav class="page-toc doc-toc" aria-label="本页目录">
+          <p class="doc-toc-title">本页目录</p>
+          <ul>
+          <li><a href="#pyspos">PySpOS 3.2.0</a></li>
+          <li><a href="#spaceos9">SpaceOS 9 公开预览</a></li>
+          <li><a href="#spaceos8">SpaceOS 8</a></li>
+          <li><a href="#retired">SpaceOS 6 / 7</a></li>
+          </ul>
+        </nav>
+        <article class="prose">
+          <h2 id="pyspos">PySpOS 3.2.0</h2>
+          <p>纯用户态程序，能跑 Python 就能跑。</p>
+          <div class="table-wrap">
+            <table data-keep-labels>
+              <thead>
+                <tr><th scope="col">项目</th><th scope="col">最低配置</th><th scope="col">推荐配置</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Python</th><td>3.10</td><td>3.12 或 3.14（CI 测过的版本）</td></tr>
+                <tr><th scope="row">系统</th><td>Windows 7、主流 Linux、macOS 10.14</td><td>同左</td></tr>
+                <tr><th scope="row">处理器</th><td>双核</td><td>同左</td></tr>
+                <tr><th scope="row">内存</th><td>512 MB</td><td>同左</td></tr>
+                <tr><th scope="row">存储</th><td>120 MB 可用空间</td><td>同左</td></tr>
+                <tr><th scope="row">终端</th><td>80×24 字符</td><td>同左</td></tr>
+                <tr><th scope="row">可选依赖</th><td>无</td><td><code>unicorn</code>（ELF 引擎）、<code>tzdata</code>（真实时区）</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>不需要管理员权限和独立显卡。缺 <code>unicorn</code> 时退回自研模拟器，Windows 和精简容器镜像需要 <code>tzdata</code> 才有真实时区。</p>
+
+          <h2 id="spaceos9">SpaceOS 9 公开预览</h2>
+          <p>目前只在 QEMU 上验证过。</p>
+          <div class="table-wrap">
+            <table data-keep-labels>
+              <thead>
+                <tr><th scope="col">项目</th><th scope="col">最低配置</th><th scope="col">推荐配置</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">平台</th><td>x86_64 QEMU</td><td>x86_64 QEMU，Q35 机型</td></tr>
+                <tr><th scope="row">固件</th><td>OVMF（UEFI）</td><td>同左</td></tr>
+                <tr><th scope="row">内存</th><td>512 MiB</td><td>同左</td></tr>
+                <tr><th scope="row">显示</th><td>—</td><td>VirtIO GPU 2D</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>真实硬件、GPU、音频、网络和睡眠唤醒都没有验证。aarch64 / riscv64 只通过编译检查，镜像里没有它们的用户态。启动命令见<a href="spaceos9-download.html#boot">下载页</a>。</p>
+
+          <h2 id="spaceos8">SpaceOS 8</h2>
+      <div class="notice notice-warn" role="note">
+        <svg class="icon notice-icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <div>
+          <p class="notice-title">请用可抛弃的机器和测试盘</p>
+          <p>NTFS 写入驱动还不能信任，不要让它碰重要数据。</p>
+        </div>
+      </div>
+          <div class="table-wrap">
+            <table data-keep-labels>
+              <thead>
+                <tr><th scope="col">项目</th><th scope="col">最低配置</th><th scope="col">推荐配置</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">处理器</th><td>x86_64</td><td>x86_64 多核（支持 SMP）</td></tr>
+                <tr><th scope="row">内存</th><td>128 MB</td><td>1 GB 以上（图形桌面 + swap）</td></tr>
+                <tr><th scope="row">固件</th><td>UEFI 或 Legacy BIOS</td><td>UEFI（已验证）</td></tr>
+                <tr><th scope="row">显示</th><td>GOP 帧缓冲</td><td>VirtIO-GPU；真实显卡驱动未完成</td></tr>
+                <tr><th scope="row">存储</th><td>不需要（默认根是 tmpfs）</td><td>IDE / AHCI / NVMe / USB 存储</td></tr>
+                <tr><th scope="row">输入</th><td>PS/2 键盘和鼠标</td><td>USB 键盘和鼠标（xHCI，已验证）</td></tr>
+                <tr><th scope="row">网络</th><td>可以不接</td><td>Intel e1000 / e1000e 或 Realtek RTL8139 / RTL8169</td></tr>
+                <tr><th scope="row">音频</th><td>可以没有</td><td>Intel HD Audio</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>VirtIO 和 SB16 声卡默认关闭，要用 <code>make menuconfig</code> 打开。实体机已在 Dell PowerEdge R410 上验证。构建依赖见 <a href="spaceos8.html#run">SpaceOS 8 介绍</a>。</p>
+
+          <h2 id="retired">SpaceOS 6 / 7</h2>
+          <p>已停止开发，不再列配置要求。见 <a href="spaceos7.html">SpaceOS 7</a> 和 <a href="spaceos6.html">SpaceOS 6</a> 存档页。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+  <!-- foot:start -->
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-about">
+        <a class="brand" href="index.html">GoutouStdio</a>
+        <p>学生自发组织的开源小组，做操作系统相关的项目。</p>
+      </div>
+      <nav>
+        <h2 class="footer-title">项目</h2>
+        <ul>
+          <li><a href="pyspos.html">PySpOS</a></li>
+          <li><a href="spaceos9.html">SpaceOS 9</a></li>
+          <li><a href="spaceos8.html">SpaceOS 8</a></li>
+        </ul>
+      </nav>
+      <nav>
+        <h2 class="footer-title">下载</h2>
+        <ul>
+          <li><a href="ota/index.html">PySpOS 更新包</a></li>
+          <li><a href="ota/releases.html">PySpOS 版本历史</a></li>
+          <li><a href="spaceos9-download.html">SpaceOS 9 镜像</a></li>
+          <li><a href="spaceos8-download.html">SpaceOS 8 镜像</a></li>
+        </ul>
+      </nav>
+      <nav>
+        <h2 class="footer-title">资料</h2>
+        <ul>
+          <li><a href="requirements.html" aria-current="page">配置要求</a></li>
+          <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub</a></li>
+          <li><a href="index.html#contact">联系我们</a></li>
+        </ul>
+      </nav>
+      <nav>
+        <h2 class="footer-title">存档</h2>
+        <ul>
+          <li><a href="spaceos7.html">SpaceOS 7</a></li>
+          <li><a href="spaceos6.html">SpaceOS 6</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="container">
+      <div class="footer-base">
+        <p>© 2022–2026 GoutouStdio。学生自发组织的项目，不涉及任何商业活动，GoutouStdio 不是真实的公司。</p>
+        <p><a href="mailto:goutoustdio@outlook.com">goutoustdio@outlook.com</a></p>
+      </div>
+    </div>
+  </footer>
+  <script src="js/main.js?v=1fc349d9"></script>
+  <script src="js/vendor/gsap.min.js?v=b2cff385"></script>
+  <script src="js/vendor/ScrollTrigger.min.js?v=c07f2876"></script>
+  <script src="js/vendor/SplitText.min.js?v=ac0878d9"></script>
+  <script src="js/vendor/lenis.min.js?v=8b680cc6"></script>
+  <script src="js/motion.js?v=e2611ba9"></script>
+  <!-- foot:end -->
+  <script src="/js/auth.js"></script>
+</body>
+</html>

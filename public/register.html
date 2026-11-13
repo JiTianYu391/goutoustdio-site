@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="PySpOS：用 Python 写的模拟操作系统，有进程调度、文件系统、引导与 OTA 更新，能执行 x86_64 的 ELF 程序。">
-  <title>PySpOS | GoutouStdio</title>
+  <meta name="robots" content="noindex">
+  <title>注册 · GoutouStdio</title>
   <!-- head:start -->
-  <link rel="stylesheet" href="css/tokens.css?v=87f53e71">
-  <link rel="stylesheet" href="css/style.css?v=28bae9f1">
+  <link rel="stylesheet" href="/css/tokens.css?v=87f53e71">
+  <link rel="stylesheet" href="/css/style.css?v=28bae9f1">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d97757'/%3E%3Ctext x='32' y='44' font-size='34' font-weight='700' text-anchor='middle' fill='%23faf9f5' font-family='Georgia,serif'%3EG%3C/text%3E%3C/svg%3E">
   <!-- head:end -->
+  <link rel="stylesheet" href="/css/auth.css">
 </head>
 <body>
   <!-- chrome:start -->
-  <script src="js/theme-init.js?v=a32b4cdf"></script>
+  <script src="/js/theme-init.js?v=a32b4cdf"></script>
   <svg class="sprite" aria-hidden="true" focusable="false">
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
@@ -47,7 +48,7 @@
       <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>GoutouStdio</a>
       <nav class="site-nav" id="site-nav" aria-label="主导航">
         <ul>
-          <li><a href="pyspos.html" aria-current="page">PySpOS</a></li>
+          <li><a href="/pyspos.html">PySpOS</a></li>
           <li><a href="spaceos9.html">SpaceOS 9</a></li>
           <li><a href="spaceos8.html">SpaceOS 8</a></li>
           <li><a href="requirements.html">配置要求</a></li>
@@ -69,124 +70,51 @@
         </ul>
       </nav>
       <div class="header-actions">
+        <a class="icon-btn auth-link" id="auth-link" href="/login" title="登录" aria-label="登录"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="auth-name">登录</span></a>
         <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题"><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
         <button class="icon-btn nav-toggle" id="nav-toggle" type="button" aria-label="菜单" title="菜单" aria-controls="site-nav" aria-expanded="false"><svg class="icon icon-menu" aria-hidden="true"><use href="#i-menu"/></svg><svg class="icon icon-close" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>
     </div>
   </header>
   <!-- chrome:end -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>GoutouStdio</a>
+      <nav class="site-nav" id="site-nav" aria-label="主导航">
+        <ul>
+          <li><a href="/pyspos.html">PySpOS</a></li>
+          <li><a href="spaceos9.html">SpaceOS 9</a></li>
+          <li><a href="spaceos8.html">SpaceOS 8</a></li>
+          <li><a href="requirements.html">配置要求</a></li>
+          <li><details class="menu"><summary>下载<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul>
+              <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
+              <li><a href="ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
+              <li><a href="spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
+              <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
+            </ul>
+          </details></li>
+          <li><details class="menu"><summary>存档<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul>
+              <li><a href="spaceos7.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 7</a></li>
+              <li><a href="spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
+            </ul>
+          </details></li>
+          <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub<svg class="icon ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
+        </ul>
+      </nav>
+      <div class="header-actions">
+        <a class="icon-btn auth-link" id="auth-link" href="/login" title="登录" aria-label="登录"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="auth-name">登录</span></a>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题"><svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button class="icon-btn nav-toggle" id="nav-toggle" type="button" aria-label="菜单" title="菜单" aria-controls="site-nav" aria-expanded="false"><svg class="icon icon-menu" aria-hidden="true"><use href="#i-menu"/></svg><svg class="icon icon-close" aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+  </header>
   <main id="main">
-    <section class="hero">
-      <div class="container hero-split">
-        <div>
-          <h1>PySpOS</h1>
-          <p class="lede">用 Python 写的模拟操作系统，跑在宿主系统上。有 shell、进程调度、文件系统和 OTA 更新，还能执行 x86_64 ELF 程序。</p>
-          <div class="actions">
-            <a class="button" href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>下载 3.2.0</a>
-            <a class="button button-secondary" href="https://github.com/ViudiraTech/PySpOS" rel="noopener" target="_blank">查看源码</a>
-          </div>
-          <dl class="spec">
-            <div><dt>当前版本</dt><dd>v3.2.0 RC1</dd></div>
-            <div><dt>运行环境</dt><dd>Python 3.10+</dd></div>
-            <div><dt>许可</dt><dd>MIT</dd></div>
-          </dl>
-        </div>
-        <figure class="hero-art">
-<pre class="terminal output" aria-label="PySpOS shell 中 help 和 ps 命令的输出"><code><span class="prompt">└─$</span> help
-<span class="dim">PySpOS shell 命令（按分组；help &lt;命令&gt; 查看详情）
-
-[系统]
-  clear            清屏
-  echo             打印字符串（支持 &gt; 与 &gt;&gt;）
-  help             显示帮助（help &lt;命令&gt; 看详情）
-  …（共 9 组）</span>
-<span class="prompt">└─$</span> ps
-<span class="dim">  PID   PPID  STATE     KIND    CMD
-    0      0  Sleeping  idle    swapper/0
-    1      0  Sleeping  init    init
-    2      1  Running   shell   pyspos-sh</span></code></pre>
-          <figcaption>shell 里 <code>help</code> 和 <code>ps</code> 的输出（节选）。PID 0、1、2 是保留进程。</figcaption>
-        </figure>
-      </div>
-    </section>
-
-    <section class="section doc-section">
-      <div class="container doc">
-        <nav class="page-toc doc-toc" aria-label="本页目录">
-          <p class="doc-toc-title">本页目录</p>
-          <ul>
-          <li><a href="#overview">简介</a></li>
-          <li><a href="#path">一条命令怎么执行</a></li>
-          <li><a href="#changes">3.2.0 更新</a></li>
-          <li><a href="#modules">源码结构</a></li>
-          <li><a href="#compat">运行环境</a></li>
-          </ul>
-        </nav>
-        <article class="prose">
-          <h2 id="overview">简介</h2>
-          <p>PySpOS 从 2022 年的“MP4 架构狗头 OS”演变而来。应用是独立的进程，调度器参照 Linux 的 EEVDF。</p>
-          <ul>
-            <li><strong>真子进程</strong>：应用有 PID、父子关系和信号。</li>
-            <li><strong>EEVDF 调度</strong>：按虚拟截止期和 nice 权重排程。</li>
-            <li><strong>ELF 引擎</strong>：Unicorn 执行 x86_64 指令；没装时退回自研的 SpaceCPU 1 Pro。</li>
-            <li><strong>A/B 升级</strong>：更新装进非活动槽位，校验后切换，失败可回滚。</li>
-          </ul>
-          <p>动态链接（INTERP）和 TLS 还没有实现。</p>
-
-          <h2 id="path">一条命令怎么执行</h2>
-          <ol>
-            <li><strong>Shell</strong>：解析输入并分发给对应模块。管道、重定向和后台作业从这里开始。</li>
-            <li><strong>进程</strong>：外部程序经 fork / exec 成为独立进程，由调度器安排运行。</li>
-            <li><strong>运行时</strong>：Unicorn 执行 ELF 指令，系统调用转给内置的模拟层。</li>
-          </ol>
-
-          <h2 id="changes">3.2.0 更新</h2>
-          <p>这一版把 1217 行的 <code>main.py</code> 拆进了 <code>src/shell/</code>，原文件保留为兼容层。</p>
-          <ul>
-            <li><strong>进程</strong>：不再是协作式模拟。PID 0、1、2 依次引导，孤儿进程由 init 收养。</li>
-            <li><strong>调度</strong>：EEVDF，参照 Linux 6.6+ 的权重表、vruntime 和虚拟截止期。</li>
-            <li><strong>后台作业</strong>：<code>cmd &amp;</code>、<code>jobs</code>、<code>fg</code>、<code>bg</code>、<code>wait</code>，以及进程组与会话。</li>
-            <li><strong>ELF 调试</strong>：加 <code>--stats</code>、<code>--map</code>、<code>--disasm</code>、<code>--strace</code> 观察执行过程。</li>
-            <li><strong>窗口</strong>：VortexGlass 管理窗口和输入，应用可以用 Python SDK 开窗口、画控件，见 <a href="vortexglass.md">vortexglass.md</a>。</li>
-            <li><strong>开机向导</strong>：11 步 curses 向导，语言和时区会实际生效，用 <code>oobe</code> 重跑。</li>
-            <li><strong>终端</strong>：中文按双宽排版，修好了按 Enter 出现 <code>^M</code> 的问题。</li>
-            <li><strong>命令</strong>：分组 <code>help</code>、Tab 补全、管道和重定向；<code>apps/</code> 下的程序可以直接执行。</li>
-            <li><strong>配置</strong>：SpaceConfig v2（<code>.spc</code>），带 Schema 校验和迁移工具。</li>
-            <li><strong>OTA</strong>：云端已恢复，Recovery 里可以选版本装到指定槽位。</li>
-            <li><strong>出厂重置</strong>：<code>recovery.erase</code> 清理 8 类数据。</li>
-            <li><strong>许可</strong>：改用 MIT。</li>
-          </ul>
-
-          <h2 id="modules">源码结构</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th scope="col">位置</th><th scope="col">作用</th></tr>
-              </thead>
-              <tbody>
-                <tr><th scope="row"><code>src/kernel.py</code></th><td>主循环：处理输入、执行命令、初始化子系统</td></tr>
-                <tr><th scope="row"><code>src/shell/</code></th><td>命令解析与分发</td></tr>
-                <tr><th scope="row"><code>src/process.py</code></th><td>进程与调度</td></tr>
-                <tr><th scope="row"><code>src/elf_loader/</code></th><td>ELF 加载、CPU 与系统调用模拟</td></tr>
-                <tr><th scope="row"><code>src/parse_spf.py</code></th><td>SPF 脚本（自研格式）</td></tr>
-                <tr><th scope="row"><code>src/ota.py</code></th><td>更新的检查、下载、校验和安装</td></tr>
-                <tr><th scope="row"><code>src/fs.py</code></th><td>文件操作 API</td></tr>
-                <tr><th scope="row"><code>src/btcfg.py</code></th><td>启动配置，存在 <code>etc/bootcfg.json</code></td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <h2 id="compat">运行环境</h2>
-          <ul>
-            <li><strong>Python</strong>：3.10 或更高。</li>
-            <li><strong>系统</strong>：Windows 7+、主流 Linux 发行版、macOS 10.14+。</li>
-          </ul>
-          <p>详见<a href="requirements.html">配置要求</a>。更新包在<a href="ota/index.html">下载页</a>，源码在 <a href="https://github.com/ViudiraTech/PySpOS" rel="noopener" target="_blank">ViudiraTech/PySpOS</a>。</p>
-        </article>
-      </div>
-    </section>
+    <section class="auth-wrap"><div class="container auth-card">
+<h1>注册</h1><form id="auth-form" data-action="register" novalidate><label>用户名（2–24 位）<input name="username" type="text" autocomplete="username" required maxlength="24"></label><label>邮箱<input name="email" type="email" autocomplete="email" required ></label><label>密码（至少 8 位）<input name="password" type="password" autocomplete="new-password" required minlength="8"></label><p class="auth-msg" id="auth-msg" role="alert"></p><button class="button" type="submit">注册</button></form><p class="auth-alt">已有账号？<a href="/login">登录</a></p>
+    </div></section>
   </main>
-  <!-- foot:start -->
   <footer class="site-footer">
     <div class="container footer-grid">
       <div class="footer-about">
@@ -196,7 +124,7 @@
       <nav>
         <h2 class="footer-title">项目</h2>
         <ul>
-          <li><a href="pyspos.html" aria-current="page">PySpOS</a></li>
+          <li><a href="/pyspos.html">PySpOS</a></li>
           <li><a href="spaceos9.html">SpaceOS 9</a></li>
           <li><a href="spaceos8.html">SpaceOS 8</a></li>
         </ul>
@@ -233,12 +161,7 @@
       </div>
     </div>
   </footer>
-  <script src="js/main.js?v=1fc349d9"></script>
-  <script src="js/vendor/gsap.min.js?v=b2cff385"></script>
-  <script src="js/vendor/ScrollTrigger.min.js?v=c07f2876"></script>
-  <script src="js/vendor/SplitText.min.js?v=ac0878d9"></script>
-  <script src="js/vendor/lenis.min.js?v=8b680cc6"></script>
-  <script src="js/motion.js?v=e2611ba9"></script>
-  <!-- foot:end -->
+  <script src="/js/main.js"></script>
+  <script src="/js/page-auth.js"></script>
 </body>
 </html>
