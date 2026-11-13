@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex">
-  <title>账号 · GoutouStdio</title>
+  <title>设置 · GoutouStdio</title>
   <!-- head:start -->
   <link rel="stylesheet" href="/css/tokens.css?v=87f53e71">
   <link rel="stylesheet" href="/css/style.css?v=28bae9f1">
@@ -45,25 +45,25 @@
   <a class="skip-link" href="#main">跳到正文</a>
   <header class="site-header">
     <div class="container header-inner">
-      <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>GoutouStdio</a>
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>GoutouStdio</a>
       <nav class="site-nav" id="site-nav" aria-label="主导航">
         <ul>
           <li><a href="/pyspos.html">PySpOS</a></li>
-          <li><a href="spaceos9.html">SpaceOS 9</a></li>
-          <li><a href="spaceos8.html">SpaceOS 8</a></li>
-          <li><a href="requirements.html">配置要求</a></li>
+          <li><a href="/spaceos9.html">SpaceOS 9</a></li>
+          <li><a href="/spaceos8.html">SpaceOS 8</a></li>
+          <li><a href="/requirements.html">配置要求</a></li>
           <li><details class="menu"><summary>下载<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
             <ul>
-              <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
-              <li><a href="ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
-              <li><a href="spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
-              <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
+              <li><a href="/ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
+              <li><a href="/ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
+              <li><a href="/spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
+              <li><a href="/spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
             </ul>
           </details></li>
           <li><details class="menu"><summary>存档<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
             <ul>
-              <li><a href="spaceos7.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 7</a></li>
-              <li><a href="spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
+              <li><a href="/spaceos7.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 7</a></li>
+              <li><a href="/spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
             </ul>
           </details></li>
           <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub<svg class="icon ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
@@ -77,105 +77,124 @@
     </div>
   </header>
   <!-- chrome:end -->
-  <main id="main">
-    <section class="acct container">
-      <h1>账号</h1>
-      <div class="acct-layout">
-        <nav class="acct-tabs" role="tablist" aria-label="账号设置">
-          <button role="tab" data-tab="profile" aria-selected="true">资料</button>
-          <button role="tab" data-tab="security" aria-selected="false">安全</button>
-          <button role="tab" data-tab="sessions" aria-selected="false">登录设备</button>
-          <button role="tab" data-tab="danger" aria-selected="false">危险操作</button>
+  <main id="main" class="ui">
+    <div class="container page">
+      <header class="page-head">
+        <span id="head-avatar"></span>
+        <div class="grow"><h1 id="head-name">设置</h1><p class="muted">你的个人账号</p></div>
+        <a class="btn" id="view-profile" href="/"><svg class="icon" aria-hidden="true"><use href="#u-person"/></svg>查看个人主页</a>
+      </header>
+      <div class="settings-layout">
+        <nav class="navlist" aria-label="设置">
+          <a href="#profile" data-sec="profile"><svg class="icon" aria-hidden="true"><use href="#u-person"/></svg>公开资料</a>
+          <a href="#account" data-sec="account"><svg class="icon" aria-hidden="true"><use href="#u-gear"/></svg>账号</a>
+          <h2 class="navlist-group">访问</h2>
+          <a href="#security" data-sec="security"><svg class="icon" aria-hidden="true"><use href="#u-lock"/></svg>密码与身份验证</a>
+          <a href="#sessions" data-sec="sessions"><svg class="icon" aria-hidden="true"><use href="#u-device"/></svg>登录设备</a>
+          <h2 class="navlist-group">通知</h2>
+          <a href="#notifications" data-sec="notifications"><svg class="icon" aria-hidden="true"><use href="#u-bell"/></svg>邮件订阅</a>
+          <div class="navlist-sep"></div>
+          <a href="/support"><svg class="icon" aria-hidden="true"><use href="#u-issue"/></svg>问题反馈</a>
+          <a href="/admin" id="nav-admin" hidden><svg class="icon" aria-hidden="true"><use href="#u-graph"/></svg>管理后台</a>
         </nav>
-        <div class="acct-panels">
-          <section data-panel="profile">
-            <div class="acct-id"><span class="acct-avatar" id="avatar" aria-hidden="true"></span><div><strong id="who"></strong><div class="acct-sub" id="who-sub"></div></div></div>
-            <p class="acct-banner" id="verify-banner" hidden>邮箱尚未验证，验证后才能发表评论。<button class="linklike" id="resend" type="button">重新发送验证邮件</button></p>
-            <form class="acct-form" id="f-profile"><h2>公开资料</h2>
-              <label>昵称（留空则显示用户名）<input name="displayName" maxlength="32"></label>
-              <label>个人简介<textarea name="bio" maxlength="200" rows="3"></textarea></label>
-              <p class="auth-msg" role="alert"></p><div class="set-actions"><button class="btn-sm primary" type="submit">保存</button></div></form>
+        <div class="settings-main" id="panels">
+          <div id="flash-top"></div>
+          <section data-panel="profile" hidden>
+            <div class="subhead"><h2>公开资料</h2></div>
+            <form id="f-profile" class="form-narrow">
+              <div class="field"><label for="displayName">昵称</label><input id="displayName" name="displayName" maxlength="32">
+                <p class="note">显示在评论和个人主页上，留空则显示用户名。</p></div>
+              <div class="field"><label for="bio">个人简介</label><textarea id="bio" name="bio" maxlength="200" rows="3" placeholder="介绍一下你自己"></textarea>
+                <p class="note"><span id="bio-count">0</span> / 200</p></div>
+              <div class="form-actions"><button class="btn btn-primary" type="submit">更新资料</button></div>
+            </form>
+          </section>
+          <section data-panel="account" hidden>
+            <div class="subhead"><h2>邮箱</h2></div>
+            <div class="box"><div class="box-row"><div class="grow"><div class="title" id="email-now"></div>
+              <div class="meta">主邮箱，用于登录、找回密码和通知。不会公开显示。</div></div>
+              <span id="email-label"></span></div>
+              <div class="box-row" id="email-unverified" hidden><div class="grow meta">还没有验证这个邮箱，验证后才能发表评论和提交工单。</div>
+              <button class="btn btn-sm" id="resend" type="button">重新发送验证邮件</button></div></div>
+            <form id="f-email" class="form-narrow" style="margin-top:1rem">
+              <div class="field"><label for="newEmail">更换邮箱</label><input id="newEmail" name="email" type="email" autocomplete="email" required>
+                <p class="note">更换后需要重新验证；旧邮箱会收到一封安全提醒。</p></div>
+              <div class="form-actions"><button class="btn" type="submit">更换邮箱</button></div>
+            </form>
+            <div class="subhead spacious"><h2>用户名</h2></div>
+            <p class="muted" style="margin:0">你的用户名是 <b id="uname" style="color:var(--pg-fg-1)"></b>，个人主页地址为 <a id="profile-url" href="/"></a>。用户名暂不支持修改。</p>
+            <div class="subhead spacious danger"><h2>危险操作</h2></div>
+            <div class="box box-danger"><div class="box-row"><div class="grow"><div class="title">注销账号</div>
+              <div class="meta">永久删除账号、评论、工单和通行密钥。此操作无法撤销。</div></div>
+              <button class="btn btn-danger" id="delete-account" type="button">注销账号</button></div></div>
           </section>
           <section data-panel="security" hidden>
-            <header class="acct-head"><h2>安全</h2><p class="acct-sub">管理登录凭据。修改敏感信息需要输入当前密码。</p></header>
-            <ul class="set-list">
-              <li class="set-row" data-row="password">
-                <div class="set-main"><div class="set-text"><strong>密码</strong><span id="pw-sub">已设置</span></div>
-                  <button class="btn-sm" type="button" data-toggle="password" aria-expanded="false">修改</button></div>
-                <form class="set-form" id="f-password" hidden>
-                  <label>当前密码<input name="current" type="password" autocomplete="current-password" required></label>
-                  <label>新密码<input name="next" type="password" autocomplete="new-password" minlength="8" required><small>至少 8 位。修改后其他设备会被退出。</small></label>
-                  <p class="auth-msg" role="alert"></p>
-                  <div class="set-actions"><button class="btn-sm primary" type="submit">保存新密码</button><button class="btn-sm" type="button" data-cancel>取消</button></div></form>
-              </li>
-              <li class="set-row" data-row="email">
-                <div class="set-main"><div class="set-text"><strong>邮箱</strong><span id="em-sub"></span></div>
-                  <button class="btn-sm" type="button" data-toggle="email" aria-expanded="false">更换</button></div>
-                <form class="set-form" id="f-email" hidden>
-                  <label>新邮箱<input name="email" type="email" autocomplete="email" required><small>更换后需要重新验证新邮箱。</small></label>
-                  <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
-                  <p class="auth-msg" role="alert"></p>
-                  <div class="set-actions"><button class="btn-sm primary" type="submit">更换邮箱</button><button class="btn-sm" type="button" data-cancel>取消</button></div></form>
-              </li>
-              <li class="set-row">
-                <div class="set-main"><div class="set-text"><strong>登录设备</strong><span>查看并下线正在登录的设备</span></div>
-                  <button class="btn-sm" type="button" data-goto="sessions">查看</button></div>
-              </li>
-            </ul>
+            <div class="subhead"><h2>修改密码</h2></div>
+            <form id="f-password" class="form-narrow">
+              <div class="field"><label for="pw-cur">当前密码</label><input id="pw-cur" name="current" type="password" autocomplete="current-password" required></div>
+              <div class="field"><label for="pw-new">新密码</label><input id="pw-new" name="next" type="password" autocomplete="new-password" minlength="8" required></div>
+              <div class="field"><label for="pw-new2">确认新密码</label><input id="pw-new2" name="next2" type="password" autocomplete="new-password" minlength="8" required>
+                <p class="note">至少 8 位。修改后其他设备会退出登录。</p></div>
+              <div class="form-actions"><button class="btn" type="submit">更新密码</button><a class="small" href="/forgot">忘记密码？</a></div>
+            </form>
+            <div class="subhead spacious"><h2>通行密钥</h2></div>
+            <p class="subhead-desc">通行密钥用指纹、面容或设备 PIN 登录，无需密码，也不会被钓鱼网站骗走。</p>
+            <div id="passkeys"></div>
+            <div class="subhead spacious"><h2>两步验证</h2><span id="tfa-label"></span></div>
+            <p class="subhead-desc">登录时除了密码，还需要输入身份验证器应用（如 Google Authenticator、Microsoft Authenticator、1Password）里的验证码。</p>
+            <div id="tfa"></div>
           </section>
           <section data-panel="sessions" hidden>
-            <header class="acct-head"><h2>登录设备</h2><p class="acct-sub">这些设备当前保持着登录状态。不认识的设备可以立即下线。</p></header>
-            <ul class="acct-sessions" id="sessions"></ul>
-            <div class="acct-btns"><button class="btn-sm" id="revoke-others" type="button">退出其他所有设备</button>
-            <button class="btn-sm" id="logout" type="button">退出当前设备</button></div>
+            <div class="subhead"><h2>登录设备</h2><button class="btn btn-sm" id="revoke-others" type="button">退出其他所有设备</button></div>
+            <p class="subhead-desc">以下设备当前保持登录。不认识的设备请立即退出并修改密码。</p>
+            <div class="box" id="sessions"></div>
           </section>
-          <section data-panel="danger" hidden>
-            <form class="acct-form acct-danger" id="f-delete"><h2>注销账号</h2>
-              <p class="acct-sub">将永久删除账号和你发表的所有评论，无法恢复。</p>
-              <label><span>输入你的用户名 <b id="del-name"></b> 以确认</span><input name="confirm" autocomplete="off" required></label>
-              <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
-              <p class="auth-msg" role="alert"></p><div class="set-actions"><button class="btn-sm danger-fill" type="submit">永久注销</button></div></form>
+          <section data-panel="notifications" hidden>
+            <div class="subhead"><h2>邮件订阅</h2></div>
+            <p class="subhead-desc">选择你想通过邮件收到的通知。每封通知邮件底部都有一键退订链接。</p>
+            <div class="box" id="subs"></div>
           </section>
         </div>
       </div>
-    </section>
+    </div>
   </main>
   <footer class="site-footer">
     <div class="container footer-grid">
       <div class="footer-about">
-        <a class="brand" href="index.html">GoutouStdio</a>
+        <a class="brand" href="/">GoutouStdio</a>
         <p>学生自发组织的开源小组，做操作系统相关的项目。</p>
       </div>
       <nav>
         <h2 class="footer-title">项目</h2>
         <ul>
           <li><a href="/pyspos.html">PySpOS</a></li>
-          <li><a href="spaceos9.html">SpaceOS 9</a></li>
-          <li><a href="spaceos8.html">SpaceOS 8</a></li>
+          <li><a href="/spaceos9.html">SpaceOS 9</a></li>
+          <li><a href="/spaceos8.html">SpaceOS 8</a></li>
         </ul>
       </nav>
       <nav>
         <h2 class="footer-title">下载</h2>
         <ul>
-          <li><a href="ota/index.html">PySpOS 更新包</a></li>
-          <li><a href="ota/releases.html">PySpOS 版本历史</a></li>
-          <li><a href="spaceos9-download.html">SpaceOS 9 镜像</a></li>
-          <li><a href="spaceos8-download.html">SpaceOS 8 镜像</a></li>
+          <li><a href="/ota/index.html">PySpOS 更新包</a></li>
+          <li><a href="/ota/releases.html">PySpOS 版本历史</a></li>
+          <li><a href="/spaceos9-download.html">SpaceOS 9 镜像</a></li>
+          <li><a href="/spaceos8-download.html">SpaceOS 8 镜像</a></li>
         </ul>
       </nav>
       <nav>
         <h2 class="footer-title">资料</h2>
         <ul>
-          <li><a href="requirements.html">配置要求</a></li>
+          <li><a href="/requirements.html">配置要求</a></li>
           <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub</a></li>
-          <li><a href="index.html#contact">联系我们</a></li>
+          <li><a href="/#contact">联系我们</a></li>
+          <li><a href="/support">问题反馈</a></li>
         </ul>
       </nav>
       <nav>
         <h2 class="footer-title">存档</h2>
         <ul>
-          <li><a href="spaceos7.html">SpaceOS 7</a></li>
-          <li><a href="spaceos6.html">SpaceOS 6</a></li>
+          <li><a href="/spaceos7.html">SpaceOS 7</a></li>
+          <li><a href="/spaceos6.html">SpaceOS 6</a></li>
         </ul>
       </nav>
     </div>
@@ -187,12 +206,14 @@
     </div>
   </footer>
   <script src="/js/main.js"></script>
-  <script src="/js/auth.js"></script>
   <script src="/js/vendor/gsap.min.js"></script>
   <script src="/js/vendor/ScrollTrigger.min.js"></script>
   <script src="/js/vendor/SplitText.min.js"></script>
   <script src="/js/vendor/lenis.min.js"></script>
   <script src="/js/motion.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/gs.js"></script>
+  <script src="/vendor/webauthn.js"></script>
   <script src="/js/account.js"></script>
 </body>
 </html>

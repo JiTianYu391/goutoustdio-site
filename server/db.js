@@ -49,3 +49,85 @@ add("sessions", "created_at", "INTEGER NOT NULL DEFAULT 0");
 add("sessions", "last_seen", "INTEGER NOT NULL DEFAULT 0");
 add("sessions", "ua", "TEXT NOT NULL DEFAULT ''");
 add("sessions", "ip", "TEXT NOT NULL DEFAULT ''");
+
+// ---- v3：两步验证 / Passkey / 订阅 / 评论回复与点赞 / 工单 / 封禁 ----
+add("users", "banned", "INTEGER NOT NULL DEFAULT 0");
+add("users", "ban_reason", "TEXT NOT NULL DEFAULT ''");
+add("users", "totp_secret", "TEXT");
+add("users", "totp_pending", "TEXT");
+add("users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0");
+add("sessions", "sudo_until", "INTEGER NOT NULL DEFAULT 0");
+add("comments", "parent_id", "INTEGER REFERENCES comments(id) ON DELETE CASCADE");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS recovery_codes (
+    id TEXT PRIMARY KEY,                -- sha256(code)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS passkeys (
+    id TEXT PRIMARY KEY,                -- credential id (base64url)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    public_key BLOB NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    last_used INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS mfa_pending (
+    id TEXT PRIMARY KEY,                -- sha256(token)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic TEXT NOT NULL,
+    PRIMARY KEY (user_id, topic)
+  );
+  CREATE TABLE IF NOT EXISTS comment_likes (
+    comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (comment_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,             -- bug | feature | question | other
+    status TEXT NOT NULL DEFAULT 'open',-- open | in_progress | resolved | closed
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS ticket_messages (
+    id INTEGER PRIMARY KEY,
+    ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    staff INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_ticket_msgs ON ticket_messages(ticket_id, id);
+  CREATE TABLE IF NOT EXISTS broadcasts (
+    id INTEGER PRIMARY KEY,
+    topic TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    link TEXT NOT NULL DEFAULT '',
+    recipients INTEGER NOT NULL DEFAULT 0,
+    sent INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER,
+    created_at INTEGER NOT NULL
+  );
+`);
+
+// 站点级随机密钥（退订链接签名用），首次启动生成并持久化
+export function siteSecret() {
+  let row = db.prepare("SELECT value FROM settings WHERE key='secret'").get();
+  if (!row) {
+    const v = (globalThis.crypto.getRandomValues(new Uint8Array(32))).reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
+    db.prepare("INSERT INTO settings (key,value) VALUES ('secret',?)").run(v);
+    row = { value: v };
+  }
+  return row.value;
+}

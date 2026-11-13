@@ -35,10 +35,10 @@ export function destroyUserSessions(userId, exceptToken) {
 }
 export function sessionUser(token) {
   if (!token) return null;
-  const row = db.prepare(`SELECT u.id, u.username, u.email, u.role, u.email_verified, u.display_name, u.bio, u.created_at, s.expires_at, s.last_seen, s.id AS sid
+  const row = db.prepare(`SELECT u.id, u.username, u.email, u.role, u.email_verified, u.display_name, u.bio, u.created_at, u.banned, u.totp_secret, s.expires_at, s.last_seen, s.sudo_until, s.id AS sid
     FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=?`).get(sha(token));
   if (!row) return null;
-  if (row.expires_at < Date.now()) { destroySession(token); return null; }
+  if (row.expires_at < Date.now() || row.banned) { destroySession(token); return null; }
   if (Date.now() - row.last_seen > 5 * 60 * 1000) db.prepare("UPDATE sessions SET last_seen=? WHERE id=?").run(Date.now(), row.sid);
   return row;
 }
@@ -76,6 +76,49 @@ export function consumeEmailToken(token, kind) {
   return row.expires_at < Date.now() ? null : row.user_id;
 }
 export function cleanupExpired() {
+  db.prepare("DELETE FROM mfa_pending WHERE expires_at < ?").run(Date.now());
   db.prepare("DELETE FROM email_tokens WHERE expires_at < ?").run(Date.now());
   db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now());
 }
+
+// ---- sudo 模式（参照 GitHub "Confirm access"）：敏感操作前 10 分钟内确认过密码 ----
+export const SUDO_MS = 10 * 60 * 1000;
+export function grantSudo(sid) { db.prepare("UPDATE sessions SET sudo_until=? WHERE id=?").run(Date.now() + SUDO_MS, sid); }
+
+// ---- 两步验证登录的中间态：密码正确但还差第二因素 ----
+export const MFA_COOKIE = "gs_mfa";
+export function createMfaPending(userId) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  db.prepare("DELETE FROM mfa_pending WHERE user_id=?").run(userId);
+  db.prepare("INSERT INTO mfa_pending (id,user_id,expires_at) VALUES (?,?,?)").run(sha(token), userId, Date.now() + 5 * 60 * 1000);
+  return token;
+}
+export function getMfaPending(token) {
+  if (!token) return null;
+  const r = db.prepare("SELECT * FROM mfa_pending WHERE id=?").get(sha(token));
+  if (!r || r.expires_at < Date.now() || r.attempts >= 5) return null;
+  return r;
+}
+export function bumpMfaAttempt(id) { db.prepare("UPDATE mfa_pending SET attempts=attempts+1 WHERE id=?").run(id); }
+export function clearMfaPending(id) { db.prepare("DELETE FROM mfa_pending WHERE id=?").run(id); }
+
+// ---- 恢复码：10 个一次性码，库里只存哈希 ----
+export function newRecoveryCodes(userId) {
+  db.prepare("DELETE FROM recovery_codes WHERE user_id=?").run(userId);
+  const alpha = "abcdefghjkmnpqrstuvwxyz23456789";
+  const codes = Array.from({ length: 10 }, () => {
+    const b = crypto.randomBytes(10); let c = "";
+    for (let i = 0; i < 10; i++) c += alpha[b[i] % alpha.length];
+    return c.slice(0, 5) + "-" + c.slice(5);
+  });
+  const ins = db.prepare("INSERT INTO recovery_codes (id,user_id) VALUES (?,?)");
+  codes.forEach((c) => ins.run(sha(c), userId));
+  return codes;
+}
+export function useRecoveryCode(userId, code) {
+  const norm = String(code || "").trim().toLowerCase().replace(/\s/g, "");
+  const r = db.prepare("DELETE FROM recovery_codes WHERE id=? AND user_id=?").run(sha(norm), userId);
+  return r.changes > 0;
+}
+export const recoveryLeft = (userId) => db.prepare("SELECT COUNT(*) c FROM recovery_codes WHERE user_id=?").get(userId).c;
+
