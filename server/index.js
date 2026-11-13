@@ -52,6 +52,15 @@ function sendVerify(req, uid, email) {
   sendMail(email, "验证你的 GoutouStdio 账号邮箱", "点击下面的链接验证邮箱（24 小时内有效）：", `${base(req)}/verify?token=${t}`)
     .catch((err) => console.error("[mail]", err.message));
 }
+// 管理员 = 邮箱等于 ADMIN_EMAIL 且已验证。邮箱改了或环境变量改了，下次同步时自动降级
+function syncAdmin(userId) {
+  const want = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const u = db.prepare("SELECT email, email_verified, role FROM users WHERE id=?").get(userId);
+  if (!u) return;
+  const role = want && u.email.toLowerCase() === want && u.email_verified ? "admin" : "user";
+  if (role !== u.role) db.prepare("UPDATE users SET role=? WHERE id=?").run(role, userId);
+}
+db.prepare("SELECT id FROM users").all().forEach((r) => syncAdmin(r.id)); // 启动时全量同步
 const pub_ = (u) => ({ id: u.id, username: u.username, email: u.email, role: u.role, displayName: u.display_name || "", bio: u.bio || "", emailVerified: !!u.email_verified, createdAt: u.created_at });
 const USER_RE = /^[A-Za-z0-9_一-龥-]{2,24}$/;
 const MAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
@@ -64,10 +73,9 @@ app.post("/api/register", authLimit, async (req, res) => {
   if (password.length < 8 || password.length > 128) return res.status(400).json({ error: "密码长度需为 8–128 位" });
   const dup = db.prepare("SELECT 1 FROM users WHERE username=? OR email=?").get(username, email);
   if (dup) return res.status(409).json({ error: "用户名或邮箱已被注册" });
-  const admin = !!process.env.ADMIN_EMAIL && process.env.ADMIN_EMAIL.toLowerCase() === email.toLowerCase();
   const hash = await A.hashPassword(password);
   const r = db.prepare("INSERT INTO users (username,email,password_hash,role,created_at) VALUES (?,?,?,?,?)")
-    .run(username, email, hash, admin ? "admin" : "user", Date.now());
+    .run(username, email, hash, "user", Date.now());
   const uid = Number(r.lastInsertRowid);
   sendVerify(req, uid, email);
   A.setCookie(res, A.createSession(uid, req));
@@ -80,8 +88,9 @@ app.post("/api/login", authLimit, async (req, res) => {
   // 用户不存在时也做一次哈希，避免时序差异泄露账号是否存在
   const ok = u ? await A.verifyPassword(password, u.password_hash) : (await A.hashPassword(password), false);
   if (!ok) return res.status(401).json({ error: "账号或密码错误" });
+  syncAdmin(u.id);
   A.setCookie(res, A.createSession(u.id, req));
-  res.json({ user: pub_(u) });
+  res.json({ user: pub_(db.prepare("SELECT * FROM users WHERE id=?").get(u.id)) });
 });
 
 app.post("/api/logout", (req, res) => {
@@ -94,6 +103,7 @@ app.post("/api/verify", authLimit, (req, res) => {
   const uid = A.consumeEmailToken(req.body.token, "verify");
   if (!uid) return res.status(400).json({ error: "链接无效或已过期" });
   db.prepare("UPDATE users SET email_verified=1 WHERE id=?").run(uid);
+  syncAdmin(uid);
   res.json({ ok: true });
 });
 
@@ -119,6 +129,7 @@ app.post("/api/reset", authLimit, async (req, res) => {
   const uid = A.consumeEmailToken(req.body.token, "reset");
   if (!uid) return res.status(400).json({ error: "链接无效或已过期" });
   db.prepare("UPDATE users SET password_hash=?, email_verified=1 WHERE id=?").run(await A.hashPassword(pw), uid);
+  syncAdmin(uid);
   A.destroyUserSessions(uid);
   res.json({ ok: true });
 });
@@ -160,6 +171,7 @@ app.post("/api/email", need, authLimit, async (req, res) => {
   if (!(await A.verifyPassword(str(req.body.password), u.password_hash))) return res.status(401).json({ error: "密码错误" });
   if (db.prepare("SELECT 1 FROM users WHERE email=? AND id<>?").get(email, u.id)) return res.status(409).json({ error: "该邮箱已被使用" });
   db.prepare("UPDATE users SET email=?, email_verified=0 WHERE id=?").run(email, u.id);
+  syncAdmin(u.id);
   sendVerify(req, u.id, email);
   res.json({ user: pub_(db.prepare("SELECT * FROM users WHERE id=?").get(u.id)) });
 });
