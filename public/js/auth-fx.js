@@ -13,7 +13,7 @@
   }
   function frame() {
     ctx.clearRect(0, 0, W, H);
-    var col = css("--pg-ref-violet", "#7c6cff"), col2 = css("--pg-ref-cyan", "#22d3ee");
+    var col = css("--pg-accent", "#7c6cff"), col2 = css("--pg-accent", "#7c6cff");
     for (var i = 0; i < pts.length; i++) {
       var p = pts[i], dx = mx - p.x, dy = my - p.y, d = Math.hypot(dx, dy);
       if (d < 160) { p.vx += dx / d * .012; p.vy += dy / d * .012; }

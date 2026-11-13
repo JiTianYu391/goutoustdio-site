@@ -21,6 +21,7 @@ app.use(helmet({
   },
   crossOriginEmbedderPolicy: false,
 }));
+app.use("/api", (_req, res, next) => { res.set("Cache-Control", "no-store"); res.set("Vary", "Cookie"); next(); });
 app.use(cookieParser());
 app.use("/api", express.json({ limit: "10kb" }));
 
