@@ -30,6 +30,15 @@
     });
   });
 
+  /* 设置行：点按钮在行内展开表单 */
+  document.querySelectorAll("[data-toggle]").forEach(function (b) {
+    var f = $("#f-" + b.dataset.toggle);
+    function set(open) { f.hidden = !open; b.setAttribute("aria-expanded", open); b.textContent = open ? "收起" : (b.dataset.toggle === "email" ? "更换" : "修改"); if (open) f.querySelector("input").focus(); }
+    b.addEventListener("click", function () { set(f.hidden); });
+    f.querySelector("[data-cancel]").addEventListener("click", function () { f.reset(); set(false); });
+  });
+  document.querySelectorAll("[data-goto]").forEach(function (b) { b.addEventListener("click", function () { show(b.dataset.goto); }); });
+
   function render() {
     $("#who").textContent = user.displayName || user.username;
     $("#who-sub").textContent = "@" + user.username + " · " + user.email + (user.emailVerified ? "（已验证）" : "（未验证）") +
@@ -39,6 +48,8 @@
     $("#f-profile [name=displayName]").value = user.displayName;
     $("#f-profile [name=bio]").value = user.bio;
     $("#del-name").textContent = user.username;
+    $("#em-sub").textContent = user.email + (user.emailVerified ? " · 已验证" : " · 未验证");
+    $("#em-sub").className = user.emailVerified ? "ok" : "warn";
   }
 
   function loadSessions() {

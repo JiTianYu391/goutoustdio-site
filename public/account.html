@@ -94,31 +94,47 @@
             <form class="acct-form" id="f-profile"><h2>公开资料</h2>
               <label>昵称（留空则显示用户名）<input name="displayName" maxlength="32"></label>
               <label>个人简介<textarea name="bio" maxlength="200" rows="3"></textarea></label>
-              <p class="auth-msg" role="alert"></p><button class="button" type="submit">保存</button></form>
+              <p class="auth-msg" role="alert"></p><div class="set-actions"><button class="btn-sm primary" type="submit">保存</button></div></form>
           </section>
           <section data-panel="security" hidden>
-            <form class="acct-form" id="f-password"><h2>修改密码</h2>
-              <label>当前密码<input name="current" type="password" autocomplete="current-password" required></label>
-              <label>新密码（至少 8 位）<input name="next" type="password" autocomplete="new-password" minlength="8" required></label>
-              <p class="auth-msg" role="alert"></p><button class="button" type="submit">修改密码</button></form>
-            <form class="acct-form" id="f-email"><h2>更换邮箱</h2>
-              <p class="acct-sub">更换后需要重新验证新邮箱。</p>
-              <label>新邮箱<input name="email" type="email" autocomplete="email" required></label>
-              <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
-              <p class="auth-msg" role="alert"></p><button class="button" type="submit">更换邮箱</button></form>
+            <header class="acct-head"><h2>安全</h2><p class="acct-sub">管理登录凭据。修改敏感信息需要输入当前密码。</p></header>
+            <ul class="set-list">
+              <li class="set-row" data-row="password">
+                <div class="set-main"><div class="set-text"><strong>密码</strong><span id="pw-sub">已设置</span></div>
+                  <button class="btn-sm" type="button" data-toggle="password" aria-expanded="false">修改</button></div>
+                <form class="set-form" id="f-password" hidden>
+                  <label>当前密码<input name="current" type="password" autocomplete="current-password" required></label>
+                  <label>新密码<input name="next" type="password" autocomplete="new-password" minlength="8" required><small>至少 8 位。修改后其他设备会被退出。</small></label>
+                  <p class="auth-msg" role="alert"></p>
+                  <div class="set-actions"><button class="btn-sm primary" type="submit">保存新密码</button><button class="btn-sm" type="button" data-cancel>取消</button></div></form>
+              </li>
+              <li class="set-row" data-row="email">
+                <div class="set-main"><div class="set-text"><strong>邮箱</strong><span id="em-sub"></span></div>
+                  <button class="btn-sm" type="button" data-toggle="email" aria-expanded="false">更换</button></div>
+                <form class="set-form" id="f-email" hidden>
+                  <label>新邮箱<input name="email" type="email" autocomplete="email" required><small>更换后需要重新验证新邮箱。</small></label>
+                  <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
+                  <p class="auth-msg" role="alert"></p>
+                  <div class="set-actions"><button class="btn-sm primary" type="submit">更换邮箱</button><button class="btn-sm" type="button" data-cancel>取消</button></div></form>
+              </li>
+              <li class="set-row">
+                <div class="set-main"><div class="set-text"><strong>登录设备</strong><span>查看并下线正在登录的设备</span></div>
+                  <button class="btn-sm" type="button" data-goto="sessions">查看</button></div>
+              </li>
+            </ul>
           </section>
           <section data-panel="sessions" hidden>
-            <h2>登录设备</h2><p class="acct-sub">这些设备当前保持着登录状态。不认识的设备可以立即下线。</p>
+            <header class="acct-head"><h2>登录设备</h2><p class="acct-sub">这些设备当前保持着登录状态。不认识的设备可以立即下线。</p></header>
             <ul class="acct-sessions" id="sessions"></ul>
-            <div class="acct-btns"><button class="button button-secondary" id="revoke-others" type="button">退出其他所有设备</button>
-            <button class="button button-secondary" id="logout" type="button">退出当前设备</button></div>
+            <div class="acct-btns"><button class="btn-sm" id="revoke-others" type="button">退出其他所有设备</button>
+            <button class="btn-sm" id="logout" type="button">退出当前设备</button></div>
           </section>
           <section data-panel="danger" hidden>
             <form class="acct-form acct-danger" id="f-delete"><h2>注销账号</h2>
               <p class="acct-sub">将永久删除账号和你发表的所有评论，无法恢复。</p>
-              <label>输入你的用户名 <b id="del-name"></b> 以确认<input name="confirm" autocomplete="off" required></label>
+              <label><span>输入你的用户名 <b id="del-name"></b> 以确认</span><input name="confirm" autocomplete="off" required></label>
               <label>当前密码<input name="password" type="password" autocomplete="current-password" required></label>
-              <p class="auth-msg" role="alert"></p><button class="button danger-btn" type="submit">永久注销</button></form>
+              <p class="auth-msg" role="alert"></p><div class="set-actions"><button class="btn-sm danger-fill" type="submit">永久注销</button></div></form>
           </section>
         </div>
       </div>
