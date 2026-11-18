@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>完整示例：小游戏 · GoutouStdio 开放平台</title>
+<meta name="description" content="一个可运行的 Node 小游戏示例：GoutouStdio 账号登录、客户端商品配置、SpacePay 充值、Webhook 验签发货。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="example">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>完整示例：小游戏</h1>
+      <p class="lede">仓库里的 <code>examples/game</code> 是一个零依赖、能直接跑的小游戏：登录、客户端商品配置、创建充值、Webhook 验签后加钻石，全都在一个 <code>server.mjs</code> 里。</p>
+
+      <h2 id="run">跑起来</h2>
+      <ol class="steps">
+        <li><b>注册应用</b>在仓库根目录执行，回调地址和示例端口一致：<br><code>npm run app:create -- --name "示例小游戏" --redirect http://localhost:5173/oauth/callback</code></li>
+        <li><b>填环境变量</b><code>GS_CLIENT_ID</code>、<code>SPACEPAY_KEY</code>、<code>SPACEPAY_WEBHOOK_SECRET</code>。本地调站点再加 <code>GS_BASE=http://localhost:8080</code>。</li>
+        <li><b>启动</b><code>node examples/game/server.mjs</code>，打开 <code>http://localhost:5173</code>。</li>
+        <li><b>点登录 → 点充值</b>登录会跳 goutoustdio.top 授权，充值会跳到 SpacePay 收款页；付款后等 Webhook。</li>
+      </ol>
+      <div class="callout info"><span class="ico">i</span><span>Webhook 要公网 HTTPS 才能收到。本地联调可以先拿内网穿透地址，付款后在 SpacePay 商户后台手动「重投」。</span></div>
+
+      <h2 id="files">文件</h2>
+      <table class="doc-table">
+        <thead><tr><th>文件</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>server.mjs</code></td><td>登录跳转、回调换令牌、创建支付、Webhook 验签、加余额</td></tr>
+          <tr><td><code>products.mjs</code></td><td>服务端兜底与可选白名单；商品默认由客户端传</td></tr>
+          <tr><td><code>public/index.html</code></td><td>登录按钮、余额、商品列表（商品配置就在这个文件里）</td></tr>
+          <tr><td><code>public/pay.html</code></td><td>扫码付款页：二维码、金额、倒计时、每 3 秒轮询到账</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="login">登录：跳转与回调</h2>
+      <p>登录路由只做三件事：生成 PKCE 和 state、存会话、302 到授权页。</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">if (pathname === "/login") {
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  const state = crypto.randomBytes(16).toString("hex");
+  const sid = crypto.randomBytes(24).toString("base64url");
+  sessions.set(sid, { verifier, state, player: null });
+  setSessionCookie(res, sid);
+
+  const auth = new URL(`${GS_BASE}/oauth/authorize`);
+  auth.search = new URLSearchParams({
+    response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI,
+    scope: "profile email", state, code_challenge: challenge, code_challenge_method: "S256",
+  });
+  res.writeHead(302, { location: auth.toString() });
+  return res.end();
+}</pre>
+      </div>
+      <p>回调先比对 <code>state</code>，再用 <code>code + verifier</code> 换令牌，最后读 userinfo：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">if (pathname === "/oauth/callback") {
+  if (url.searchParams.get("state") !== sess.state) return json(res, 400, { error: "state 不匹配" });
+
+  const tokens = await exchangeCode(url.searchParams.get("code"), sess.verifier);
+  const user = await fetchUser(tokens.access_token);
+
+  // sub 是唯一且稳定的玩家主键
+  sess.player = { sub: user.sub, username: user.username, displayName: user.display_name || user.username };
+  if (!players.has(user.sub)) players.set(user.sub, { ...sess.player, credits: 0 });
+  res.writeHead(302, { location: "/" });
+  return res.end();
+}</pre>
+      </div>
+
+      <h2 id="recharge">充值：商品由客户端传</h2>
+      <p>客户端把整份商品配置（<code>sku</code>、<code>name</code>、<code>price</code>、<code>credits</code>）POST 给游戏服务器，服务器校验格式后下单；没传就用兜底商品（100 钻石）。</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="client">客户端</button><button data-lang="node">服务端</button></div><button class="copy">复制</button></div>
+<pre data-lang="client">const GAME_PRODUCTS = [
+  { sku: 'monthly_pass', name: '月卡', price: '5.00', credits: 300 },
+  { sku: 'starter_pack', name: '新手礼包', price: '9.90', credits: 600 },
+];
+
+const r = await fetch('/api/recharge', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ product: GAME_PRODUCTS[0] }),
+});
+location.href = (await r.json()).checkout_url;</pre>
+<pre data-lang="node" hidden>if (pathname === "/api/recharge") {
+  const body = await readBody(req);
+  const product = acceptProduct(body.product || body);   // 校验 price / name / credits
+  if (!product) return json(res, 400, { error: "商品配置不合法" });
+
+  const reference = `order-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+  const order = { reference, sub, sku: product.sku, name: product.name, credits: product.credits,
+    amountCents: Math.round(Number(product.price) * 100), status: "pending" };
+
+  const payment = await createPayment(order);   // POST /api/v1/payments
+  orders.set(reference, order);
+  return json(res, 200, { reference, checkout_url: payment.checkout_url });
+}</pre>
+      </div>
+
+      <h2 id="webhook">回调：验签与发货</h2>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">if (pathname === "/webhooks/spacepay") {
+  const raw = await readRaw(req);   // 必须是原始字节
+  if (!verifyWebhook(raw, req.headers["x-spacepay-signature"], WEBHOOK_SECRET)) {
+    return json(res, 400, { error: "bad signature" });
+  }
+
+  const evt = JSON.parse(raw.toString("utf8"));
+  if (seenEvents.has(evt.id)) return json(res, 200, { ok: true });  // 幂等
+  seenEvents.add(evt.id);
+
+  if (evt.type === "payment.succeeded") {
+    const order = orders.get(evt.data.reference);
+    if (!order) return json(res, 409, { error: "unknown order" });
+    if (evt.data.amount_cents !== order.amountCents) return json(res, 400, { error: "amount mismatch" });
+    players.get(order.sub).credits += order.credits;
+    order.status = "paid";
+  }
+  return json(res, 200, { ok: true });
+}</pre>
+      </div>
+
+      <h2 id="qr">付款页：二维码 + 轮询</h2>
+      <p>下单成功后游戏不直接跳收款页，而是回到自己的 <code>/pay/订单号</code> 页面：展示金额与二维码，每 3 秒问一次服务端「到账没」，Webhook 和主动对账都能把订单变成已支付。完整版式与代码见 <a href="/docs/recharge#checkout-ui">付款页与二维码</a>。</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">服务端</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">if (pathname.startsWith("/api/order/")) {
+  const order = orders.get(pathname.slice("/api/order/".length));
+  if (!order || order.sub !== sess.player.sub) return json(res, 404, { error: "订单不存在" });
+
+  // Webhook 没到时主动对一次账
+  if (order.status === "pending") {
+    const r = await fetch(`${SPACEPAY_BASE}/api/v1/payments/${order.paymentId}`, {
+      headers: { authorization: `Bearer ${SPACEPAY_KEY}` },
+    });
+    const { payment } = await r.json();
+    if (payment?.status === "SUCCEEDED") deliver(order);
+  }
+  return json(res, 200, { ...order, qr_url: order.qrUrl });
+}</pre>
+      </div>
+
+      <h2 id="engine">引擎里怎么接</h2>
+      <table class="doc-table">
+        <thead><tr><th>场景</th><th>做法</th></tr></thead>
+        <tbody>
+          <tr><td>网页游戏</td><td>直接 <code>location.href</code> 到授权页；回调用你自己的后端换令牌，别在浏览器里换。</td></tr>
+          <tr><td>Godot / Unity / 桌面端</td><td>用系统浏览器打开授权页，回调到 <code>mygame://oauth/callback</code> 这类自定义协议，再交给本地服务端换令牌。</td></tr>
+          <tr><td>手机游戏</td><td>同上，用系统浏览器或 <code>ASWebAuthenticationSession</code> / Custom Tabs，不要用内嵌 WebView 收密码。</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn"><span class="ico">!</span><span>自定义协议回调的 <code>redirect_uri</code> 也要在注册应用时登记，并且同样精确匹配。协议回调可能被其它 App 抢注，敏感场景建议加 PKCE + 短时效授权码（本平台已经强制 PKCE）。</span></div>
+
+      <h2 id="checklist">上线前检查</h2>
+      <ul>
+        <li>密钥只在服务端环境变量；仓库里没有 <code>sp_live_</code> 或 <code>gs_sk_</code> 字样。</li>
+        <li><code>state</code> 每次登录随机、用一次就作废；授权码失败就让玩家重登，不复用。</li>
+        <li>商品价格与发货数量以订单记录为准，Webhook 只用来触发发货。</li>
+        <li>Webhook 幂等（事件 ID 唯一索引）、5 分钟时间窗、原始请求体验签。</li>
+        <li>玩家余额变动在事务里写流水，能对账。</li>
+        <li>退款事件会扣回已发道具，别只处理 <code>payment.succeeded</code>。</li>
+      </ul>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

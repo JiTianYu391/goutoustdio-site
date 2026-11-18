@@ -66,6 +66,7 @@
               <li><a href="spaceos6.html"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>SpaceOS 6</a></li>
             </ul>
           </details></li>
+          <li><a href="/docs">开放平台</a></li>
           <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub<svg class="icon ext" aria-hidden="true"><use href="#i-external"/></svg></a></li>
         </ul>
       </nav>
@@ -157,6 +158,42 @@
       </div>
     </section>
 
+    <section class="section" id="open">
+      <div class="container">
+        <div class="section-head">
+          <h2>开放平台</h2>
+          <p>把自己的游戏接进来：账号用 GoutouStdio 登录，充值走 SpacePay。付款页带二维码，Webhook 通知发货。</p>
+        </div>
+        <div class="tiles">
+          <article class="tile tile-clay">
+            <span class="icon-box tile-icon"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg></span>
+            <h3>账号登录</h3>
+            <p class="status"><span class="badge badge-ok">OAuth 2.0</span> 授权码 + PKCE</p>
+            <p>玩家点一下就用 GoutouStdio 账号进游戏。你只拿到稳定的 <code>sub</code> 和昵称，密码不经过你的服务器。</p>
+            <div class="tile-links"><a href="/docs/oauth">接入文档</a><a href="/docs/tokens">用户信息</a></div>
+          </article>
+          <article class="tile tile-sky">
+            <span class="icon-box tile-icon"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg></span>
+            <h3>扫码充值</h3>
+            <p class="status"><span class="badge badge-ok">SpacePay</span> 商户 API</p>
+            <p>创建订单拿到收款页和二维码，倒计时、到账轮询都现成。付款成功推 Webhook，验签后发货。</p>
+            <div class="tile-links"><a href="/docs/recharge">创建订单</a><a href="/docs/webhooks">回调验签</a></div>
+          </article>
+          <article class="tile tile-sage">
+            <span class="icon-box tile-icon"><svg class="icon" aria-hidden="true"><use href="#i-code"/></svg></span>
+            <h3>示例与源码</h3>
+            <p class="status"><span class="badge">零依赖</span> Node.js</p>
+            <p>一个能跑的示例小游戏：登录、客户端商品配置、二维码付款页、Webhook 验签，全在一个文件里。</p>
+            <div class="tile-links"><a href="/docs/example">看示例</a><a href="https://github.com/JiTianYu391/goutoustdio-site/tree/main/examples/game" rel="noopener" target="_blank">源码 <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg></a></div>
+          </article>
+        </div>
+        <div class="actions">
+          <a class="button" href="/docs">阅读接入文档</a>
+          <a class="button button-secondary" href="https://pay.goutoustdio.top/merchant">支付控制台</a>
+        </div>
+      </div>
+    </section>
+
     <section class="section section-tint" id="quickstart">
       <div class="container split">
         <h2>运行 PySpOS</h2>
@@ -222,6 +259,7 @@ python launcher.py</code></pre>
         <h2 class="footer-title">资料</h2>
         <ul>
           <li><a href="requirements.html">配置要求</a></li>
+          <li><a href="/docs">开放平台</a></li>
           <li><a href="https://github.com/ViudiraTech" rel="noopener" target="_blank">GitHub</a></li>
           <li><a href="index.html#contact">联系我们</a></li>
           <li><a href="/support">问题反馈</a></li>

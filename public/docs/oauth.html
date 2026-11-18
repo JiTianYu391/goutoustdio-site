@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>账号登录（OAuth 2.0） · GoutouStdio 开放平台</title>
+<meta name="description" content="GoutouStdio 账号接入：OAuth 2.0 授权码 + PKCE，授权页参数、换取令牌、state 校验与常见错误。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="oauth">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>账号登录（OAuth 2.0）</h1>
+      <p class="lede">用授权码 + PKCE（RFC 6749 / RFC 7636）。玩家在 GoutouStdio 的页面上登录并确认授权，你的游戏只拿到一个授权码，再在服务端换成令牌——密码永远不经过你的服务器。</p>
+
+      <h2 id="flow">流程</h2>
+      <ol class="steps">
+        <li><b>生成 PKCE 与 state</b>每次登录都新生成 <code>code_verifier</code>、<code>code_challenge</code> 和随机 <code>state</code>，和玩家会话绑定。</li>
+        <li><b>跳到授权页</b><code>GET /oauth/authorize</code>。没登录的玩家会先去登录页，登录后回到授权页；已授权过的应用会直接放行。</li>
+        <li><b>拿到授权码</b>玩家点「允许」后，浏览器回到你的 <code>redirect_uri</code>，带 <code>code</code> 和原样返回的 <code>state</code>。</li>
+        <li><b>服务端换令牌</b><code>POST /oauth/token</code>，带上 <code>code</code>、<code>redirect_uri</code>、<code>code_verifier</code>。</li>
+        <li><b>读取用户信息</b><code>GET /oauth/userinfo</code>，用返回的 <code>sub</code> 作为你数据库里的玩家主键。</li>
+      </ol>
+
+      <h2 id="authorize">授权端点</h2>
+      <div class="endpoint"><span class="method get">GET</span><code>https://goutoustdio.top/oauth/authorize</code></div>
+      <table class="doc-table">
+        <thead><tr><th>参数</th><th>必填</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>response_type</code></td><td>是</td><td>固定 <code>code</code></td></tr>
+          <tr><td><code>client_id</code></td><td>是</td><td>注册应用时拿到的 <code>gs_app_…</code></td></tr>
+          <tr><td><code>redirect_uri</code></td><td>是</td><td>必须与登记值完全一致（含路径、末尾斜杠、大小写）</td></tr>
+          <tr><td><code>scope</code></td><td>否</td><td><code>profile</code>（默认）或 <code>profile email</code>，空格分隔</td></tr>
+          <tr><td><code>state</code></td><td>强烈建议</td><td>随机串，回调时原样带回，用来防 CSRF 和串号</td></tr>
+          <tr><td><code>code_challenge</code></td><td>是</td><td>43–128 位 base64url：<code>BASE64URL(SHA256(verifier))</code></td></tr>
+          <tr><td><code>code_challenge_method</code></td><td>是</td><td>只支持 <code>S256</code>；<code>plain</code> 会被拒绝</td></tr>
+          <tr><td><code>prompt</code></td><td>否</td><td><code>consent</code> 强制重新显示授权页</td></tr>
+        </tbody>
+      </table>
+      <p>参数不合法时直接显示错误页（不会跳转），这是为了防止把玩家送到未登记的回调地址；其他错误按 OAuth 规范带回 <code>redirect_uri</code>。</p>
+
+      <h2 id="pkce">生成 PKCE</h2>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button><button data-lang="python">Python</button><button data-lang="js">浏览器 / 引擎 JS</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">import crypto from 'node:crypto';
+
+const verifier = crypto.randomBytes(32).toString('base64url'); // 43 字符
+const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+// verifier 存服务端会话（或加密 cookie），challenge 放进授权 URL</pre>
+<pre data-lang="python" hidden>import base64, hashlib, secrets
+
+verifier = secrets.token_urlsafe(32)
+challenge = base64.urlsafe_b64encode(
+    hashlib.sha256(verifier.encode()).digest()
+).rstrip(b"=").decode()</pre>
+<pre data-lang="js" hidden>// 浏览器原生 Crypto；Godot / Unity 也可以调用系统浏览器的这段逻辑
+const bytes = crypto.getRandomValues(new Uint8Array(32));
+const verifier = base64url(bytes);
+const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+const challenge = base64url(new Uint8Array(digest));
+
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}</pre>
+      </div>
+
+      <h2 id="callback">回调与 state 校验</h2>
+      <p>玩家同意后：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="text">回调</button></div><button class="copy">复制</button></div>
+<pre data-lang="text">https://game.example/oauth/callback?code=67qKeA2lyou8…&amp;state=4f2a…</pre>
+      </div>
+      <p>拒绝授权或参数问题时：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="text">错误回调</button></div><button class="copy">复制</button></div>
+<pre data-lang="text">https://game.example/oauth/callback?error=access_denied&amp;state=4f2a…</pre>
+      </div>
+      <ul>
+        <li>先比对 <code>state</code> 与会话里的值，不一致直接丢弃（防止攻击者把自己的授权码塞给别的玩家）。</li>
+        <li>授权码 <b>10 分钟</b>有效、<b>只能用一次</b>；失败请让玩家重新走一遍授权，不要复用。</li>
+        <li>回调地址只做一次 302 到游戏内页面，不要在浏览器里换令牌。</li>
+      </ul>
+
+      <h2 id="token">换取令牌</h2>
+      <div class="endpoint"><span class="method post">POST</span><code>https://goutoustdio.top/oauth/token</code></div>
+      <p><code>Content-Type: application/x-www-form-urlencoded</code>。机密客户端用 <code>Authorization: Basic base64(client_id:client_secret)</code>，公共客户端在表单里放 <code>client_id</code>。</p>
+      <table class="doc-table">
+        <thead><tr><th>参数</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>grant_type</code></td><td><code>authorization_code</code></td></tr>
+          <tr><td><code>code</code></td><td>回调里的授权码</td></tr>
+          <tr><td><code>redirect_uri</code></td><td>与授权时完全一致</td></tr>
+          <tr><td><code>code_verifier</code></td><td>当初生成的 verifier（43–128 位）</td></tr>
+          <tr><td><code>client_id</code></td><td>公共客户端必填；机密客户端可放 Basic 头</td></tr>
+          <tr><td><code>client_secret</code></td><td>仅机密客户端，推荐用 Basic 头，避免出现在日志里</td></tr>
+        </tbody>
+      </table>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button><button data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl -X POST https://goutoustdio.top/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d grant_type=authorization_code \
+  -d code=$CODE \
+  -d redirect_uri=https://game.example/oauth/callback \
+  -d client_id=$GS_CLIENT_ID \
+  -d code_verifier=$VERIFIER</pre>
+<pre data-lang="node" hidden>const body = new URLSearchParams({
+  grant_type: 'authorization_code',
+  code,
+  redirect_uri: REDIRECT_URI,
+  client_id: process.env.GS_CLIENT_ID,
+  code_verifier: verifier,
+});
+const r = await fetch('https://goutoustdio.top/oauth/token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body,
+});
+if (!r.ok) throw new Error('token 换取失败：' + (await r.json()).error);
+const { access_token, refresh_token, expires_in } = await r.json();</pre>
+      </div>
+      <p>响应（字段含义见 <a href="/docs/tokens">令牌与用户信息</a>）：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="json">{
+  "access_token": "gs_at_…",
+  "token_type": "Bearer",
+  "expires_in": 7200,
+  "refresh_token": "gs_rt_…",
+  "scope": "profile email"
+}</pre>
+      </div>
+
+      <h2 id="clients">公共客户端与机密客户端</h2>
+      <table class="doc-table">
+        <thead><tr><th>类型</th><th>适用</th><th>凭据</th></tr></thead>
+        <tbody>
+          <tr><td>公共客户端</td><td>游戏本体、网页游戏、桌面 / 手机 App</td><td>只有 <code>client_id</code>，必须 PKCE</td></tr>
+          <tr><td>机密客户端</td><td>有后端的游戏服务器</td><td><code>client_id</code> + <code>client_secret</code>（<code>--secret</code> 创建）</td></tr>
+        </tbody>
+      </table>
+      <div class="callout danger"><span class="ico">!</span><span>不要把 <code>client_secret</code>、<code>access_token</code> 打进游戏安装包或前端 JS。玩家能拆包看到的一切都不算秘密。</span></div>
+
+      <h2 id="errors">授权错误</h2>
+      <table class="doc-table">
+        <thead><tr><th>error</th><th>原因</th><th>怎么处理</th></tr></thead>
+        <tbody>
+          <tr><td><code>access_denied</code></td><td>玩家点了取消</td><td>回到登录页，提示「需要授权才能登录」</td></tr>
+          <tr><td><code>invalid_request</code></td><td>缺参数、PKCE 不合法</td><td>检查 <code>code_challenge</code> 长度与方法</td></tr>
+          <tr><td><code>invalid_scope</code></td><td>请求了应用未登记的 scope</td><td>用注册时的 scope，或重新注册应用</td></tr>
+          <tr><td><code>unsupported_response_type</code></td><td>不是 <code>code</code></td><td>固定用授权码模式</td></tr>
+        </tbody>
+      </table>
+      <div class="callout tip"><span class="ico">✓</span><span>本地调试想跳过「已授权直接放行」：授权 URL 加 <code>&amp;prompt=consent</code>，每次都会显示授权页。</span></div>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

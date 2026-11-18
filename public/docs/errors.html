@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>错误码与限流 · GoutouStdio 开放平台</title>
+<meta name="description" content="OAuth 与 SpacePay 常见错误码、HTTP 状态约定、限流规则和接入排查清单。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="errors">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>错误码与限流</h1>
+      <p class="lede">账号接口用 OAuth 标准错误体（<code>error</code> + <code>error_description</code>），支付接口用 <code>ok</code> + <code>code</code> + <code>request_id</code>。两类都不要把原始报错直接弹给玩家。</p>
+
+      <h2 id="oauth">OAuth 错误</h2>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="json">{ "error": "invalid_grant", "error_description": "授权码无效或已过期" }</pre>
+      </div>
+      <table class="doc-table">
+        <thead><tr><th>HTTP</th><th>error</th><th>常见原因</th></tr></thead>
+        <tbody>
+          <tr><td>400</td><td><code>invalid_request</code></td><td>缺参数、PKCE 不是 S256、<code>code_verifier</code> 格式不对</td></tr>
+          <tr><td>400</td><td><code>invalid_grant</code></td><td>授权码过期 / 用过 / redirect_uri 不一致 / verifier 对不上 / refresh 已轮换</td></tr>
+          <tr><td>400</td><td><code>unsupported_grant_type</code></td><td>只支持 <code>authorization_code</code> 和 <code>refresh_token</code></td></tr>
+          <tr><td>400</td><td><code>invalid_scope</code></td><td>请求了应用未登记的 scope</td></tr>
+          <tr><td>401</td><td><code>invalid_client</code></td><td>client_id 不存在、应用停用、机密客户端 secret 错误</td></tr>
+          <tr><td>401</td><td><code>invalid_token</code></td><td>userinfo 的 access token 过期、撤销或账号被封禁</td></tr>
+          <tr><td>429</td><td><code>slow_down</code></td><td>令牌端点限流，退避后重试</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="pay">支付错误</h2>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="json">{
+  "ok": false,
+  "error": "金额不是合法十进制数",
+  "code": "AMOUNT_INVALID",
+  "request_id": "req_9f8e7d6c5b4a3210"
+}</pre>
+      </div>
+      <p>报障时带上 <code>request_id</code>，服务端日志能定位到具体请求。</p>
+      <table class="doc-table">
+        <thead><tr><th>HTTP</th><th>code</th><th>处理</th></tr></thead>
+        <tbody>
+          <tr><td>401</td><td><code>INVALID_API_KEY</code></td><td>密钥缺失 / 错误 / 已吊销，检查环境变量</td></tr>
+          <tr><td>403</td><td><code>MERCHANT_INACTIVE</code></td><td>商户未过审或被暂停，去商户后台看状态</td></tr>
+          <tr><td>400</td><td><code>AMOUNT_INVALID</code> / <code>AMOUNT_PRECISION</code> / <code>AMOUNT_ZERO</code></td><td>金额必须是两位小数的正数字符串</td></tr>
+          <tr><td>400</td><td><code>AMOUNT_TOO_LARGE</code></td><td>超过 <code>$10,000,000.00</code></td></tr>
+          <tr><td>400</td><td><code>METADATA_TOO_LARGE</code></td><td><code>metadata</code> 序列化后超过 2KB</td></tr>
+          <tr><td>409</td><td><code>REFERENCE_CONFLICT</code></td><td>同一 reference 金额不同，换订单号或金额</td></tr>
+          <tr><td>409</td><td><code>PAYMENT_NOT_PAYABLE</code> / <code>PAYMENT_EXPIRED</code></td><td>订单已付、已取消或超 30 分钟，重新创建</td></tr>
+          <tr><td>400</td><td><code>REFUND_EXCEEDS_REMAINING</code></td><td>退款超过可退金额，<code>details.refundable_cents</code> 是上限</td></tr>
+          <tr><td>422</td><td><code>IDEMPOTENCY_KEY_REUSED</code></td><td>同键不同参数；换键或修正参数</td></tr>
+          <tr><td>409</td><td><code>IDEMPOTENCY_IN_PROGRESS</code></td><td>同键请求还在处理，稍等后重试</td></tr>
+          <tr><td>429</td><td><code>RATE_LIMITED</code></td><td>每个 API Key 每分钟 120 次，退避重试</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="limits">限流</h2>
+      <table class="doc-table">
+        <thead><tr><th>接口</th><th>限额</th></tr></thead>
+        <tbody>
+          <tr><td><code>/oauth/token</code>、<code>/oauth/revoke</code></td><td>每 IP 15 分钟 120 次</td></tr>
+          <tr><td><code>/oauth/authorize</code></td><td>跟随站点页面限流；正常玩家不会碰到</td></tr>
+          <tr><td>SpacePay <code>/api/v1/*</code></td><td>每个 API Key 每分钟 120 次（部署方可调）</td></tr>
+        </tbody>
+      </table>
+      <p>超限返回 <code>429</code>，带 <code>Retry-After</code>（支付接口）。用指数退避，别把重试堆在同一秒。</p>
+
+      <h2 id="checklist">接入排查</h2>
+      <ul>
+        <li><b>授权页 400「回调地址不匹配」</b>：授权 URL 里的 <code>redirect_uri</code> 和登记值有一个字符不同，包括末尾斜杠和 http/https。</li>
+        <li><b>换令牌 invalid_grant</b>：先确认 code 没用过且没过 10 分钟，再确认 verifier 与 challenge 是一对。</li>
+        <li><b>回调收不到</b>：地址必须是公网 HTTPS，且 10 秒内返回 2xx；看商户后台的投递记录。</li>
+        <li><b>验签总失败</b>：九成是用了 JSON 重新序列化后的字符串，改为原始请求体字节。</li>
+        <li><b>玩家说付了但没到账</b>：先按 <code>reference</code> 查支付单状态，再查 Webhook 投递记录，最后核对 <code>metadata.gs_user_id</code>。</li>
+        <li><b>重复发货</b>：没有按 <code>X-SpacePay-Delivery</code> 或订单状态做幂等。</li>
+      </ul>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

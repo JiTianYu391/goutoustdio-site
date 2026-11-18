@@ -7,7 +7,9 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "app:create": "node scripts/create-app.mjs",
+    "test": "node --test --test-reporter=spec test/*.test.js"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^14.0.0",

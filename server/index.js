@@ -2,16 +2,17 @@ import express from "express";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { db } from "./db.js";
 import * as A from "./auth.js";
-import { syncAdmin } from "./util.js";
+import { syncAdmin, base } from "./util.js";
 import authRoutes from "./routes/auth.js";
 import mfaRoutes from "./routes/mfa.js";
 import accountRoutes from "./routes/account.js";
 import commentRoutes from "./routes/comments.js";
 import ticketRoutes from "./routes/tickets.js";
 import adminRoutes from "./routes/admin.js";
+import oauthRoutes, { oauthCleanup, SCOPES } from "./oauth.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8080;
@@ -53,9 +54,37 @@ app.use("/api", authRoutes, mfaRoutes, accountRoutes, commentRoutes, ticketRoute
 app.use("/api/admin", adminRoutes);
 app.use("/api", (_req, res) => res.status(404).json({ error: "not found" }));
 
+// ---------- 开放平台：OAuth 2.0 端点 ----------
+app.use("/oauth", (_req, res, next) => { res.set("Cache-Control", "no-store"); res.set("X-Frame-Options", "DENY"); next(); });
+app.use("/oauth", oauthRoutes);
+app.get("/.well-known/oauth-authorization-server", (req, res) => {
+  const origin = base(req);
+  res.json({
+    issuer: origin,
+    authorization_endpoint: `${origin}/oauth/authorize`,
+    token_endpoint: `${origin}/oauth/token`,
+    userinfo_endpoint: `${origin}/oauth/userinfo`,
+    revocation_endpoint: `${origin}/oauth/revoke`,
+    scopes_supported: Object.keys(SCOPES),
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
+  });
+});
+
 // 浏览器端 WebAuthn 库直接取自 node_modules，版本与服务端一致
 app.get("/vendor/webauthn.js", (_req, res) =>
   res.type("js").sendFile(webauthnBundle));
+
+// 开放平台文档 /docs（无构建步骤，页面在 public/docs/）
+const DOC_PAGES = new Set(["index", "oauth", "tokens", "recharge", "webhooks", "errors", "example"]);
+app.get("/docs", (_req, res) => res.sendFile(path.join(pub, "docs", "index.html")));
+app.get("/docs/:page", (req, res, next) => {
+  const page = req.params.page.replace(/\.html$/, "");
+  if (!DOC_PAGES.has(page)) return next();
+  res.sendFile(path.join(pub, "docs", `${page}.html`));
+});
 
 const page = (file) => (_req, res) => res.sendFile(path.join(pub, file));
 for (const p of ["login", "register", "account", "verify", "forgot", "reset", "admin"]) app.get(`/${p}`, page(`${p}.html`));
@@ -66,4 +95,11 @@ app.use((_req, res) => res.status(404).sendFile(path.join(pub, "index.html")));
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: "服务器错误" }); });
 
 setInterval(A.cleanupExpired, 3600 * 1000).unref();
-app.listen(PORT, "0.0.0.0", () => console.log(`listening on :${PORT}`));
+setInterval(oauthCleanup, 3600 * 1000).unref();
+
+export { app };
+
+// 只有直接 `node server/index.js` 时才监听；测试里 import 本文件拿到 app 自己起端口
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  app.listen(PORT, "0.0.0.0", () => console.log(`listening on :${PORT}`));
+}

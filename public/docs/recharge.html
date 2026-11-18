@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>创建充值订单 · GoutouStdio 开放平台</title>
+<meta name="description" content="用 SpacePay 商户 API 创建充值订单：金额、商品名称、metadata 绑定 GoutouStdio 账号，幂等、查询与退款。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="recharge">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>创建充值订单</h1>
+      <p class="lede">充值直接走 SpacePay 商户 API：你的服务器创建支付单，玩家在收款页付款，SpacePay 用 Webhook 通知你发货。商品名称、金额和 <code>sku</code> 都由你的游戏决定，平台不预设商品；没传商品名时兜底成「100 钻石」。</p>
+
+      <div class="callout info"><span class="ico">i</span><span>完整的 SpacePay 接口（结账页、二维码、结算、对账）在 <a href="https://pay.goutoustdio.top/docs" rel="noopener">pay.goutoustdio.top/docs</a>。本页只讲游戏接入要用的部分。</span></div>
+
+      <h2 id="prepare">准备</h2>
+      <ol class="steps">
+        <li><b>入驻商户</b>登录 SpacePay，在「我的 → 商户后台」提交入驻，等运营审核通过。</li>
+        <li><b>创建 API Key</b>审核通过后在「API 密钥」创建 <code>sp_live_…</code>。密钥只显示一次，放在服务端环境变量。</li>
+        <li><b>配置 Webhook</b>在「Webhook」填游戏服务器的 HTTPS 地址，保存签名密钥（<code>whsec_…</code>）。</li>
+      </ol>
+
+      <h2 id="basics">基础信息</h2>
+      <table class="doc-table">
+        <thead><tr><th>项目</th><th>值</th></tr></thead>
+        <tbody>
+          <tr><td>接口地址</td><td><code>https://pay.goutoustdio.top/api/v1</code></td></tr>
+          <tr><td>鉴权</td><td><code>Authorization: Bearer sp_live_…</code> 或 <code>X-API-Key</code></td></tr>
+          <tr><td>数据格式</td><td><code>application/json; charset=utf-8</code></td></tr>
+          <tr><td>金额</td><td>入参是十进制字符串（<code>"5.00"</code>），响应同时给 <code>amount_cents</code>（整数分）</td></tr>
+          <tr><td>币种</td><td>目前只有 <code>USD</code></td></tr>
+          <tr><td>时间</td><td>毫秒时间戳</td></tr>
+          <tr><td>订单有效期</td><td>创建后 30 分钟，过期需重新创建</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="create">创建支付</h2>
+      <div class="endpoint"><span class="method post">POST</span><code>/api/v1/payments</code></div>
+      <table class="doc-table">
+        <thead><tr><th>参数</th><th>必填</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>amount</code></td><td>是</td><td>十进制字符串，两位小数，如 <code>"5.00"</code>；上限 <code>$10,000,000.00</code></td></tr>
+          <tr><td><code>currency</code></td><td>否</td><td>默认 <code>USD</code></td></tr>
+          <tr><td><code>reference</code></td><td>否</td><td>你的业务订单号（≤80 字符）。同一商户内相同 reference + 相同金额返回同一笔支付，是业务幂等键</td></tr>
+          <tr><td><code>description</code></td><td>否</td><td>商品名（≤200 字符），显示在收款页。由客户端商品配置传入；缺省兜底为「100 钻石」</td></tr>
+          <tr><td><code>customer_email</code></td><td>否</td><td>付款人邮箱，可用于对账</td></tr>
+          <tr><td><code>success_url</code></td><td>否</td><td>付款成功后跳回的地址，必须是你的游戏域名</td></tr>
+          <tr><td><code>cancel_url</code></td><td>否</td><td>玩家取消后跳回的地址</td></tr>
+          <tr><td><code>metadata</code></td><td>否</td><td>自定义对象，序列化后 ≤2KB，回调原样带回。至少放 <code>gs_user_id</code> 和 <code>sku</code></td></tr>
+        </tbody>
+      </table>
+      <p>请求头带 <code>Idempotency-Key</code>（UUID v4）：超时重试时不会重复扣款，24 小时内同键同参数直接重放原响应。</p>
+
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button><button data-lang="node">Node.js</button><button data-lang="python">Python</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl https://pay.goutoustdio.top/api/v1/payments \
+  -H "Authorization: Bearer $SPACEPAY_KEY" \
+  -H "Idempotency-Key: 8f1c2e3a-6b7d-4c9e-9a21-3d5f7b9c1e42" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": "5.00",
+    "description": "月卡",
+    "reference": "order-2026-0001",
+    "success_url": "https://game.example/recharge/done",
+    "metadata": { "gs_user_id": "10001", "gs_username": "alice", "sku": "monthly_pass" }
+  }'</pre>
+<pre data-lang="node" hidden>// product 来自客户端商品配置，服务端校验后原样传给 SpacePay
+async function createRecharge(player, product, orderId) {
+  const r = await fetch(`${process.env.SPACEPAY_BASE}/api/v1/payments`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.SPACEPAY_KEY}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      amount: product.price,                    // 来自游戏商品配置
+      description: product.name || '100 钻石',  // 兜底
+      reference: orderId,
+      metadata: {
+        gs_user_id: player.sub,
+        gs_username: player.username,
+        sku: product.sku || '100_diamonds',
+      },
+    }),
+  });
+  const { ok, payment, error } = await r.json();
+  if (!ok) throw new Error(error);
+  return payment; // payment.checkout_url / payment.qr.svg_url
+}</pre>
+<pre data-lang="python" hidden>import os, requests
+
+def create_recharge(player, product, order_id):
+    resp = requests.post(
+        f"{os.environ['SPACEPAY_BASE']}/api/v1/payments",
+        headers={
+            "Authorization": f"Bearer {os.environ['SPACEPAY_KEY']}",
+            "Idempotency-Key": str(uuid.uuid4()),
+        },
+        json={
+            "amount": product["price"],              # 游戏商品配置
+            "description": product.get("name") or "100 钻石",
+            "reference": order_id,
+            "metadata": {"gs_user_id": player["sub"], "sku": product.get("sku", "100_diamonds")},
+        },
+        timeout=15,
+    )
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(data.get("error"))
+    return data["payment"]</pre>
+      </div>
+
+      <h2 id="response">响应</h2>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="json">{
+  "ok": true,
+  "payment": {
+    "id": "pay_12",
+    "object": "payment",
+    "numeric_id": 12,
+    "reference": "order-2026-0001",
+    "amount_cents": 500,
+    "amount": "5.00",
+    "currency": "USD",
+    "status": "CREATED",
+    "description": "月卡",
+    "metadata": { "gs_user_id": "10001", "sku": "monthly_pass" },
+    "checkout_url": "https://pay.goutoustdio.top/pay.html?token=…",
+    "qr": {
+      "payload": "https://pay.goutoustdio.top/pay.html?token=…",
+      "svg_url": "/api/checkout/…/qr.svg",
+      "json_url": "/api/checkout/…/qr"
+    },
+    "created_at": 1762800000000,
+    "expires_at": 1762801800000
+  }
+}</pre>
+      </div>
+      <p><code>checkout_url</code> 直接丢给玩家（新窗口 / 系统浏览器 / 内嵌 WebView 都行）；网页端也可以把 <code>qr.svg_url</code> 当图片地址做扫码付款。</p>
+
+      <h2 id="checkout-ui">付款页与二维码</h2>
+      <p>成熟收银台（Stripe Checkout、支付宝当面付、微信扫码付）都遵循同一套结构：<b>金额最大</b>、商品与订单号清楚、二维码居中、明确告诉玩家「用手机扫」、状态自动刷新、失败/过期有明确出口。照着这个做就够了。</p>
+      <div class="cards">
+        <div class="card"><b>付款页要素</b><p>商户名 + 商品名、大写金额、订单号、二维码（白底留边）、剩余时间、当前设备打开按钮、成功 / 过期状态。</p></div>
+        <div class="card"><b>二维码</b><p>用 <code>qr.svg_url</code> 直接当 <code>&lt;img src&gt;</code>，或拿 <code>qr.payload</code> 自己生成；内容就是收款页链接，任何相机都能扫。</p></div>
+        <div class="card"><b>状态</b><p>页面每 3 秒查一次你的服务端；服务端用支付单查询接口对账，Webhook 仍是最终依据。</p></div>
+      </div>
+
+      <h3>取二维码</h3>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="text">接口</button><button data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="text">GET https://pay.goutoustdio.top/api/checkout/:token            收款页信息（公开，无需登录）
+GET https://pay.goutoustdio.top/api/checkout/:token/qr.svg     二维码 SVG，可直接当图片
+GET https://pay.goutoustdio.top/api/checkout/:token/qr         二维码 JSON（payload / svg / 过期时间）
+</pre>
+<pre data-lang="json" hidden>{ "ok": true, "qr": { "payload": "https://pay.goutoustdio.top/pay.html?token=…",
+  "svg_url": "/api/checkout/…/qr.svg", "expires_at": 1762801800000 } }</pre>
+      </div>
+
+      <h3>付款页骨架</h3>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="html">HTML + JS</button></div><button class="copy">复制</button></div>
+<pre data-lang="html">&lt;div class="pay-card"&gt;
+  &lt;div class="amount"&gt;$5.00&lt;/div&gt;
+  &lt;div class="desc"&gt;月卡&lt;/div&gt;
+  &lt;div class="ref"&gt;订单号 order-2026-0001&lt;/div&gt;
+
+  &lt;div class="qr"&gt;&lt;img id="qr" alt="付款二维码"&gt;&lt;/div&gt;
+  &lt;p class="hint"&gt;用手机扫一扫，在 SpacePay 完成付款&lt;/p&gt;
+
+  &lt;a class="btn primary" id="open"&gt;在当前设备打开收款页&lt;/a&gt;
+  &lt;div class="meta"&gt;剩余 &lt;b id="left"&gt;30:00&lt;/b&gt; · &lt;span id="status"&gt;等待付款&lt;/span&gt;&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+const order = await (await fetch('/api/order/order-2026-0001')).json();
+qr.src = order.qr_url;                       // 服务端补成绝对地址
+open.href = order.checkout_url;              // 同设备直接打开
+
+setInterval(async () =&gt; {
+  const o = await (await fetch('/api/order/order-2026-0001')).json();
+  if (o.status === 'paid') location.href = '/?paid=1';
+}, 3000);
+&lt;/script&gt;</pre>
+      </div>
+      <div class="callout info"><span class="ico">i</span><span>支付宝 / 微信的扫码付页面都会同时给「扫码」和「手机直接打开」两条路：玩家就在手机上时，让他点按钮比让他扫自己屏幕更靠谱。</span></div>
+
+      <h3>轮询与对账</h3>
+      <ul>
+        <li>页面只查你自己的服务端，不要在前端拿着 <code>sp_live_…</code> 去查 SpacePay。</li>
+        <li>服务端按支付单 ID 查 <code>GET /api/v1/payments/pay_{id}</code>，发现 <code>SUCCEEDED</code> 就补发货——这是 Webhook 丢失时的兜底。</li>
+        <li>轮询间隔 3–5 秒即可；成功 / 过期后停掉定时器，别一直打接口。</li>
+        <li>最终一致性以 Webhook 为准，轮询只是让玩家不用等刷新。</li>
+      </ul>
+      <p class="doc-foot">设计参考：<a href="https://stripe.com/zh-us/resources/more/payment-page-template-best-practices" rel="noopener">Stripe 支付页面最佳实践</a> · <a href="https://opendocs.alipay.com/open/00f7ns" rel="noopener">支付宝付款码 / 当面付</a> · <a href="https://pay.weixin.qq.com/doc/v3/partner/4020527499" rel="noopener">微信支付扫码交互规范</a></p>
+
+      <h2 id="products">商品配置由客户端传</h2>
+      <p>卖什么、叫什么、多少钱、发多少，都由你的游戏决定，下单时一起传给服务端；平台不预设商品。客户端<b>什么都没传</b>时兜底成「100 钻石」。</p>
+      <ol class="steps">
+        <li><b>客户端选商品</b>游戏里维护商品配置，点击充值时把 <code>{ sku, name, price, credits }</code> POST 给游戏服务器。</li>
+        <li><b>服务端校验</b>价格是两位小数的正数、名称长度、发货数量上限；不合格直接拒绝。是否只认白名单由你决定。</li>
+        <li><b>服务端下单</b>把校验后的 <code>name</code> 作 <code>description</code>、<code>price</code> 作 <code>amount</code>、<code>sku</code> 放进 <code>metadata</code> 调 SpacePay。</li>
+      </ol>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="client">客户端</button><button data-lang="server">服务端校验</button><button data-lang="curl">直接调 API</button></div><button class="copy">复制</button></div>
+<pre data-lang="client">// 游戏客户端：商品配置就在这里，想改随时改
+const PRODUCTS = [
+  { sku: 'monthly_pass', name: '月卡', price: '5.00', credits: 300 },
+  { sku: 'starter_pack', name: '新手礼包', price: '9.90', credits: 600 },
+];
+
+const r = await fetch('/api/recharge', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ product: PRODUCTS[0] }),
+});
+const { checkout_url } = await r.json();
+location.href = checkout_url;</pre>
+<pre data-lang="server" hidden>// 游戏服务器：只做格式校验和兜底，价格按客户端传的收
+function acceptProduct(input = {}) {
+  const sku = String(input.sku || '').trim().slice(0, 40) || '100_diamonds';
+  const name = String(input.name || '100 钻石').trim().slice(0, 200);
+  const price = String(input.price || '1.00').trim();
+  if (!/^\d{1,7}(\.\d{1,2})?$/.test(price) || Number(price) <= 0) return null;
+  const credits = Math.min(Math.max(Number(input.credits) || 100, 1), 1_000_000);
+  return { sku, name, price, credits };
+}
+
+// 可选：有排行榜 / 多人经济时改成白名单，只认服务端登记的商品
+const WHITELIST = { monthly_pass: '5.00', starter_pack: '9.90' };
+function acceptWhitelisted(input = {}) {
+  const p = WHITELIST[input.sku];
+  return p ? { sku: input.sku, name: input.name || input.sku, price: p } : null;
+}</pre>
+<pre data-lang="curl" hidden># 商品信息直接体现在 amount / description / metadata 里
+curl https://pay.goutoustdio.top/api/v1/payments \
+  -H "Authorization: Bearer $SPACEPAY_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": "5.00",
+    "description": "月卡",
+    "metadata": { "gs_user_id": "10001", "sku": "monthly_pass" }
+  }'</pre>
+      </div>
+      <div class="callout warn"><span class="ico">!</span><span>客户端能传价格，就等于客户端能改价格。单机、朋友之间玩没问题；一旦有排行榜、交易或多人经济，改成服务端白名单，或至少限制金额上下限和每日充值次数。</span></div>
+      <div class="callout info"><span class="ico">i</span><span>发货数量 <code>credits</code> 建议以服务端订单里存的那份为准。Webhook 回来时按订单发货，不要相信再次传来的数字。</span></div>
+
+      <h2 id="idempotent">幂等与重试</h2>
+      <ul>
+        <li>创建支付：带 <code>Idempotency-Key</code>，超时 / 5xx 用同一个键重试；4xx 不要重试。</li>
+        <li><code>reference</code> 用你的订单号：同一商户内相同 reference 且金额一致会返回同一笔支付，天然防重复下单。</li>
+        <li>同键不同参数返回 <code>422 IDEMPOTENCY_KEY_REUSED</code>；同键请求仍在处理返回 <code>409 IDEMPOTENCY_IN_PROGRESS</code>。</li>
+      </ul>
+
+      <h2 id="query">查询订单</h2>
+      <div class="endpoint"><span class="method get">GET</span><code>/api/v1/payments/pay_{id}</code></div>
+      <p>支付成功后状态为 <code>SUCCEEDED</code>，其它状态：<code>CREATED</code>、<code>EXPIRED</code>、<code>CANCELED</code>、<code>PARTIALLY_REFUNDED</code>、<code>REFUNDED</code>。</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl https://pay.goutoustdio.top/api/v1/payments/pay_12 \
+  -H "Authorization: Bearer $SPACEPAY_KEY"</pre>
+      </div>
+      <p>玩家从收款页返回但 Webhook 还没到，可先按 <code>reference</code> 主动查一次；最终仍以 Webhook 为准。</p>
+
+      <h2 id="refund">退款</h2>
+      <div class="endpoint"><span class="method post">POST</span><code>/api/v1/payments/pay_{id}/refund</code></div>
+      <p>不传 <code>amount</code> 退剩余全部，传了就按金额部分退款。退款成功后 SpacePay 推 <code>payment.refunded</code>，游戏侧应扣回已发的道具或余额。</p>
+
+      <h2 id="settle">钱去哪了</h2>
+      <p>默认 <code>auto</code> 结算：玩家付的钱实时进入商户所有者账户，可再提现；<code>manual</code> 模式先进可结算余额，由运营审核后结转。两种模式都不影响你按订单发货。</p>
+
+      <h2 id="security">安全清单</h2>
+      <ul>
+        <li><code>sp_live_…</code> 只放服务端环境变量，不进前端、不进安装包、不进 Git。</li>
+        <li>Webhook 必须验签，校验时间戳在 5 分钟内，按 <code>X-SpacePay-Delivery</code> 去重。</li>
+        <li>发货以服务端订单状态为准：<code>metadata.reference</code> 对应你库里的订单，金额与商品也要核对。</li>
+        <li>怀疑密钥泄露：在商户后台吊销并重新创建。</li>
+      </ul>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

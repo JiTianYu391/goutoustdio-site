@@ -36,6 +36,17 @@ GoutouStdio 小组官方网站，部署在 FadeHost，域名 [goutoustdio.top](h
 
 本地运行：`npm install && npm start`。
 
+## 开放平台
+
+给游戏 / 第三方应用的接入能力，文档在 `/docs`（`public/docs/`，无构建步骤，侧栏由 `docs.js` 生成）。
+
+- **账号登录**：OAuth 2.0 授权码 + PKCE，端点在 `/oauth/*`（`server/oauth.js`）。公共客户端无密钥，机密客户端用 `--secret` 创建。授权页由服务端渲染，未登录先去登录页，登录后自动回来。
+- **注册应用**：`npm run app:create -- --name "我的游戏" --redirect https://game.example/oauth/callback`，`node scripts/create-app.mjs list` 查看。数据落在 `oauth_clients` / `oauth_codes` / `oauth_tokens` / `oauth_consents` 四张表。
+- **充值**：不在本站收款，直接用 SpacePay 商户 API（`pay.goutoustdio.top`），文档里讲清楚了商品配置、幂等、二维码付款页和 Webhook 验签。
+- **示例**：`examples/game/` 是一个零依赖 Node 小游戏，登录 + 客户端商品配置 + 扫码付款页 + 回调发货，`node examples/game/server.mjs` 直接跑。
+
+文档页：`/docs`、`/docs/oauth`、`/docs/tokens`、`/docs/recharge`、`/docs/webhooks`、`/docs/errors`、`/docs/example`。测试：`npm test`（OAuth 全流程 + 文档路由）。
+
 ## 大文件说明
 
 下载用的大文件（两个 Uinxed ISO、OTA 更新包 zip）和两张截图因为是二进制文件，没有放进这个仓库，相关链接指向原 PySpOS 仓库的 raw 地址：

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>令牌与用户信息 · GoutouStdio 开放平台</title>
+<meta name="description" content="access_token / refresh_token 有效期与轮换、GET /oauth/userinfo 返回字段、撤销令牌与发现端点。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="tokens">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>令牌与用户信息</h1>
+      <p class="lede">授权码换来的是一对令牌：access token 两小时，refresh token 三十天且每次刷新都换新。玩家资料用 <code>GET /oauth/userinfo</code> 读取，<code>sub</code> 是唯一标识。</p>
+
+      <h2 id="lifetime">有效期</h2>
+      <table class="doc-table">
+        <thead><tr><th>令牌</th><th>有效期</th><th>用法</th></tr></thead>
+        <tbody>
+          <tr><td>授权码 <code>code</code></td><td>10 分钟，一次</td><td>只在换取令牌时使用</td></tr>
+          <tr><td>access token</td><td>2 小时</td><td><code>Authorization: Bearer …</code> 调 userinfo</td></tr>
+          <tr><td>refresh token</td><td>30 天，每次刷新轮换</td><td>换取新的 access / refresh，旧的一对立即作废</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn"><span class="ico">!</span><span>刷新令牌是<b>一次性</b>的：刷新成功后必须保存新的 <code>refresh_token</code>。并发刷新会有一个请求失败，这是预期行为——同一玩家请串行刷新。</span></div>
+
+      <h2 id="refresh">刷新令牌</h2>
+      <div class="endpoint"><span class="method post">POST</span><code>https://goutoustdio.top/oauth/token</code></div>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button><button data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl -X POST https://goutoustdio.top/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d grant_type=refresh_token \
+  -d refresh_token=$REFRESH_TOKEN \
+  -d client_id=$GS_CLIENT_ID</pre>
+<pre data-lang="node" hidden>const r = await fetch('https://goutoustdio.top/oauth/token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: saved.refreshToken,
+    client_id: process.env.GS_CLIENT_ID,
+  }),
+});
+if (r.status === 400) return logout(); // invalid_grant：过期或已被用过，让玩家重新登录
+const tok = await r.json();
+save(tok); // 两个令牌都要更新</pre>
+      </div>
+
+      <h2 id="userinfo">读取玩家资料</h2>
+      <div class="endpoint"><span class="method get">GET</span><code>https://goutoustdio.top/oauth/userinfo</code></div>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button><button data-lang="json">响应</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl https://goutoustdio.top/oauth/userinfo \
+  -H "Authorization: Bearer $ACCESS_TOKEN"</pre>
+<pre data-lang="json" hidden>{
+  "sub": "10001",
+  "username": "alice",
+  "display_name": "Alice",
+  "bio": "写内核的",
+  "profile_url": "/u/alice",
+  "admin": false,
+  "created_at": 1762800000000,
+  "email": "alice@example.com",
+  "email_verified": true
+}</pre>
+      </div>
+      <table class="doc-table">
+        <thead><tr><th>字段</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>sub</code></td><td><b>账号唯一标识</b>，字符串形式的用户 ID，不会变。用它当玩家主键</td></tr>
+          <tr><td><code>username</code></td><td>用户名，用于展示。不要把用户名当外键，改名后会对不上</td></tr>
+          <tr><td><code>display_name</code> <code>bio</code></td><td>昵称与简介，可能为空字符串</td></tr>
+          <tr><td><code>profile_url</code></td><td>站点个人主页路径，拼上 <code>https://goutoustdio.top</code> 即可</td></tr>
+          <tr><td><code>email</code> <code>email_verified</code></td><td>仅在授权 scope 含 <code>email</code> 时返回，未验证邮箱的 <code>email_verified</code> 为 <code>false</code></td></tr>
+        </tbody>
+      </table>
+      <p>令牌无效、过期或账号被封禁时返回 <code>401</code>：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="json">{ "error": "invalid_token", "error_description": "access_token 无效或已过期" }</pre>
+      </div>
+
+      <h2 id="revoke">撤销令牌</h2>
+      <div class="endpoint"><span class="method post">POST</span><code>https://goutoustdio.top/oauth/revoke</code></div>
+      <p>玩家在游戏里「解绑 / 退出」时调用，access token 或 refresh token 都可以传。按 RFC 7009，无论令牌是否存在都返回 <code>200</code>。</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl -X POST https://goutoustdio.top/oauth/revoke \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d token=$REFRESH_TOKEN \
+  -d client_id=$GS_CLIENT_ID</pre>
+      </div>
+
+      <h2 id="binding">账号绑定建议</h2>
+      <ul>
+        <li>第一次登录时用 <code>sub</code> 建玩家档，把昵称头像存成缓存；之后每次登录按 <code>sub</code> 查。</li>
+        <li>支持游客的，先建游客档，登录后把游客档合并到 <code>sub</code> 对应的正式档。</li>
+        <li>账号被删除或封禁时 userinfo 会返回 401，把它当成「请重新登录」，不要当成网络错误重试。</li>
+        <li>玩家的游戏内昵称与 GoutouStdio 昵称可以不同；以你游戏内的昵称为准，别每次登录覆盖。</li>
+      </ul>
+
+      <h2 id="discovery">端点发现</h2>
+      <p>如果你的框架支持 OAuth 元数据，可以直接读：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button><button data-lang="json">响应</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl https://goutoustdio.top/.well-known/oauth-authorization-server</pre>
+<pre data-lang="json" hidden>{
+  "issuer": "https://goutoustdio.top",
+  "authorization_endpoint": "https://goutoustdio.top/oauth/authorize",
+  "token_endpoint": "https://goutoustdio.top/oauth/token",
+  "userinfo_endpoint": "https://goutoustdio.top/oauth/userinfo",
+  "revocation_endpoint": "https://goutoustdio.top/oauth/revoke",
+  "scopes_supported": ["profile", "email"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "code_challenge_methods_supported": ["S256"]
+}</pre>
+      </div>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

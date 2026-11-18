@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>快速开始 · GoutouStdio 开放平台</title>
+<meta name="description" content="用 GoutouStdio 账号登录你的游戏，用 SpacePay 商户 API 完成充值。三步接入：注册应用、OAuth 登录、创建充值订单。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="index">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>快速开始</h1>
+      <p class="lede">不用自己写注册、找回密码和支付。把 <b>登录</b> 交给 GoutouStdio 账号，把 <b>充值</b> 交给 SpacePay，你的游戏只需要保存一个稳定的用户 ID，然后等回调发货。</p>
+
+      <div class="cards">
+        <div class="card"><b>GoutouStdio 账号</b><p>OAuth 2.0 授权码 + PKCE。玩家在你的游戏里点「使用 GoutouStdio 登录」，授权后拿到 <code>sub</code> 和公开资料。</p></div>
+        <div class="card"><b>SpacePay 充值</b><p>商户 API 创建支付单，把 <code>checkout_url</code> 交给玩家。付款成功通过 Webhook 通知你的服务器。</p></div>
+        <div class="card"><b>两份凭据</b><p>应用拿 <code>client_id</code>（公共客户端无密钥）；收款拿 <code>sp_live_…</code> API Key，只放服务端。</p></div>
+      </div>
+
+      <h2 id="services">两个服务</h2>
+      <table class="doc-table">
+        <thead><tr><th>用途</th><th>地址</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>账号授权</td><td><code>https://goutoustdio.top</code></td><td><code>/oauth/authorize</code>、<code>/oauth/token</code>、<code>/oauth/userinfo</code></td></tr>
+          <tr><td>充值收款</td><td><code>https://pay.goutoustdio.top</code></td><td>SpacePay 商户 API，<code>/api/v1/payments</code>，<a href="https://pay.goutoustdio.top/docs" rel="noopener">完整接口文档</a></td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn"><span class="ico">!</span><span>当前 SpacePay 是<b>虚拟资金</b>演示环境：余额和结算都是记账，不接真实银行卡或支付渠道。接口语义、签名与幂等行为与生产一致，可以完整联调，但不能真的收钱。</span></div>
+
+      <h2 id="flow">接入流程</h2>
+      <ol class="steps">
+        <li><b>注册应用，拿到 client_id</b>在服务器上执行一条命令。公共客户端（游戏本体、网页游戏）不生成密钥，只靠 PKCE。</li>
+        <li><b>接入登录</b>把玩家浏览器送到 <code>/oauth/authorize</code>，回调里用 <code>code</code> 换令牌，再取 <code>/oauth/userinfo</code> 得到 <code>sub</code>。</li>
+        <li><b>开通商户，创建充值单</b>在 <a href="https://pay.goutoustdio.top/merchant">SpacePay 商户后台</a>申请入驻并创建 API Key，服务端调用 <code>POST /api/v1/payments</code>。</li>
+        <li><b>接收回调，发货</b>配置 Webhook 地址，验签后按 <code>metadata.gs_user_id</code> 给玩家加余额或发道具。</li>
+      </ol>
+
+      <h2 id="register">1. 注册应用</h2>
+      <p>在站点服务器上运行（源码在 <code>scripts/create-app.mjs</code>）：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="shell">Shell</button></div><button class="copy">复制</button></div>
+<pre data-lang="shell">npm run app:create -- \
+  --name "我的游戏" \
+  --redirect http://localhost:5173/oauth/callback</pre>
+      </div>
+      <p>输出：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="text">输出</button></div><button class="copy">复制</button></div>
+<pre data-lang="text">应用已创建：我的游戏
+  client_id      gs_app_3f7c1a9e5b2d4c60
+  类型           公共客户端（无 client_secret，必须用 PKCE）
+  redirect_uris  http://localhost:5173/oauth/callback
+  scope          profile</pre>
+      </div>
+      <ul>
+        <li>服务端渲染的游戏、需要 <code>client_secret</code> 的场景，加 <code>--secret</code> 创建机密客户端。</li>
+        <li>回调地址必须<b>完全一致</b>；生产环境只接受 <code>https://</code>，本机调试允许 <code>http://localhost</code>。</li>
+        <li>需要邮箱时加 <code>--scope "profile email"</code>，玩家会额外看到一条授权项。</li>
+      </ul>
+
+      <h2 id="login">2. 让玩家登录</h2>
+      <p>生成 PKCE 的 <code>code_verifier</code> / <code>code_challenge</code>，把浏览器跳到授权页（完整参数见 <a href="/docs/oauth">账号登录</a>）：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button><button data-lang="url">授权 URL</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">import crypto from 'node:crypto';
+
+const verifier = crypto.randomBytes(32).toString('base64url');
+const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+
+const url = new URL('https://goutoustdio.top/oauth/authorize');
+url.search = new URLSearchParams({
+  response_type: 'code',
+  client_id: process.env.GS_CLIENT_ID,
+  redirect_uri: 'https://game.example/oauth/callback',
+  scope: 'profile',
+  state: crypto.randomBytes(16).toString('hex'),
+  code_challenge: challenge,
+  code_challenge_method: 'S256',
+}).toString();
+
+// verifier 和 state 存进玩家会话，回调时要用
+res.redirect(url.toString());</pre>
+<pre data-lang="url" hidden>https://goutoustdio.top/oauth/authorize
+  ?response_type=code
+  &amp;client_id=gs_app_3f7c1a9e5b2d4c60
+  &amp;redirect_uri=https%3A%2F%2Fgame.example%2Foauth%2Fcallback
+  &amp;scope=profile
+  &amp;state=4f2a…
+  &amp;code_challenge=…
+  &amp;code_challenge_method=S256</pre>
+      </div>
+      <div class="callout info"><span class="ico">i</span><span>玩家已经在 goutoustdio.top 登录过的话，授权页会直接出现「允许 / 取消」；没登录会先去登录页，登录后自动回到授权。</span></div>
+
+      <h2 id="recharge">3. 创建充值订单</h2>
+      <p>在 SpacePay 商户后台拿到 <code>sp_live_…</code> 密钥，服务端调用（金额是十进制字符串）：</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="curl">curl</button><button data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="curl">curl https://pay.goutoustdio.top/api/v1/payments \
+  -H "Authorization: Bearer $SPACEPAY_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": "5.00",
+    "currency": "USD",
+    "reference": "order-2026-0001",
+    "description": "月卡（游戏自定义商品）",
+    "success_url": "https://game.example/recharge/done",
+    "metadata": { "gs_user_id": "10001", "sku": "monthly_pass" }
+  }'</pre>
+<pre data-lang="node" hidden>const r = await fetch('https://pay.goutoustdio.top/api/v1/payments', {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${process.env.SPACEPAY_KEY}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': crypto.randomUUID(),
+  },
+  body: JSON.stringify({
+    // product 是客户端传来的商品配置，服务端校验过格式
+    amount: product.price,
+    reference: orderId,
+    description: product.name,
+    metadata: { gs_user_id: player.sub, sku: product.sku },
+  }),
+});
+const { payment } = await r.json();
+// 把 payment.checkout_url 交给玩家（跳转或生成二维码）
+</pre>
+      </div>
+      <p>响应里的 <code>checkout_url</code> 就是收款页。把它给玩家，付款成功后 SpacePay 会 POST 到你的 Webhook。</p>
+
+      <h2 id="webhook">4. 验签并发货</h2>
+      <p>Webhook 请求头 <code>X-SpacePay-Signature</code> 形如 <code>t=1762800000,v1=…</code>，签名是 <code>HMAC-SHA256(secret, t + "." + 原始请求体)</code>。验过之后再按业务订单号发货，详见 <a href="/docs/webhooks">回调与验签</a>。</p>
+
+      <h2 id="next">下一步</h2>
+      <ul>
+        <li><a href="/docs/oauth">账号登录（OAuth 2.0）</a>：授权参数、PKCE、换取令牌。</li>
+        <li><a href="/docs/recharge">创建充值订单</a>：金额、幂等、查询与退款。</li>
+        <li><a href="/docs/example">完整示例</a>：一个能跑的 Node 小游戏，登录 + 充值 + 验签。</li>
+      </ul>
+      <p class="doc-foot">文档里的金额均为美元（USD），接口内以整数分存储。遇到问题先看 <a href="/docs/errors">错误码</a>。</p>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

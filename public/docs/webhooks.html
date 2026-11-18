@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回调与验签 · GoutouStdio 开放平台</title>
+<meta name="description" content="SpacePay Webhook：事件类型、请求头、HMAC-SHA256 验签、重试与去重，以及按 metadata 给玩家发货。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/docs/docs.css">
+<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
+</head>
+<body class="doc" data-page="webhooks">
+<header class="doc-header" id="docHeader"></header>
+<div class="doc-scrim" id="docScrim"></div>
+<div class="doc-shell">
+  <aside class="doc-side" id="docSide">
+    <div class="doc-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="docSearch" type="search" placeholder="搜索文档" aria-label="搜索文档"></div>
+    <nav class="doc-nav" id="docNav" aria-label="文档目录"></nav>
+  </aside>
+  <main class="doc-main">
+    <article class="doc-article">
+      <h1>回调与验签</h1>
+      <p class="lede">付款、退款都会以 HTTPS POST 推到你在 SpacePay 商户后台配置的地址。验签通过、金额与订单核对无误后再发货，重复投递要幂等。</p>
+
+      <h2 id="setup">配置</h2>
+      <ol class="steps">
+        <li><b>填地址</b>商户后台 →「Webhook」→ 填 <code>https://game.example/webhooks/spacepay</code>，必须是公网 HTTPS，不能是本机或内网。</li>
+        <li><b>保存签名密钥</b>同页查看 <code>whsec_…</code>，放到服务端环境变量 <code>SPACEPAY_WEBHOOK_SECRET</code>。可随时重置。</li>
+        <li><b>本地联调</b>用内网穿透拿一个临时 HTTPS 地址填进去；投递失败可在后台「重投」。</li>
+      </ol>
+
+      <h2 id="events">事件</h2>
+      <table class="doc-table">
+        <thead><tr><th>事件</th><th>触发</th><th>游戏侧动作</th></tr></thead>
+        <tbody>
+          <tr><td><code>payment.succeeded</code></td><td>玩家付款成功</td><td>按 <code>reference</code> 找到订单，核对金额与 sku，发货并标记已支付</td></tr>
+          <tr><td><code>payment.refunded</code></td><td>商户或运营退款</td><td>扣回已发道具 / 余额，记录退款单</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="envelope">事件结构</h2>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="json">JSON</button></div><button class="copy">复制</button></div>
+<pre data-lang="json">{
+  "id": "evt_9f8e7d6c5b4a3210",
+  "type": "payment.succeeded",
+  "created": 1762800000,
+  "data": {
+    "id": "pay_12",
+    "numeric_id": 12,
+    "reference": "order-2026-0001",
+    "amount_cents": 500,
+    "amount": "5.00",
+    "currency": "USD",
+    "status": "SUCCEEDED",
+    "refunded_cents": 0,
+    "refundable_cents": 500,
+    "description": "月卡",
+    "customer_email": "alice@example.com",
+    "metadata": { "gs_user_id": "10001", "gs_username": "alice", "sku": "monthly_pass" },
+    "created_at": 1762800000000,
+    "paid_at": 1762800030000
+  }
+}</pre>
+      </div>
+      <p><code>data</code> 是事件发生时的支付单快照；退款事件里 <code>status</code> 为 <code>PARTIALLY_REFUNDED</code> 或 <code>REFUNDED</code>，<code>refunded_cents</code> 是累计退款额。</p>
+
+      <h2 id="headers">请求头</h2>
+      <table class="doc-table">
+        <thead><tr><th>请求头</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>X-SpacePay-Event</code></td><td>事件类型，如 <code>payment.succeeded</code></td></tr>
+          <tr><td><code>X-SpacePay-Delivery</code></td><td>事件 ID，重试不变，用它去重</td></tr>
+          <tr><td><code>X-SpacePay-Signature</code></td><td><code>t=时间戳,v1=签名</code></td></tr>
+          <tr><td><code>User-Agent</code></td><td><code>SpacePay-Webhooks/1.0</code></td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="verify">验证签名</h2>
+      <p>签名 = <code>HMAC-SHA256(webhook_secret, 时间戳 + "." + 原始请求体)</code>，小写十六进制。必须用<b>原始字节</b>计算，不能解析 JSON 再重新序列化。</p>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button><button data-lang="python">Python</button><button data-lang="express">Express 原始请求体</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">import crypto from 'node:crypto';
+
+export function verifySpacePay(rawBody, header, secret, toleranceSec = 300) {
+  const parts = Object.fromEntries(header.split(',').map((p) => p.split('=')));
+  const t = Number(parts.t);
+  if (!Number.isFinite(t) || Math.abs(Date.now() / 1000 - t) > toleranceSec) return false;
+  const expected = crypto.createHmac('sha256', secret)
+    .update(`${parts.t}.`).update(rawBody).digest('hex');
+  const a = Buffer.from(expected), b = Buffer.from(parts.v1 || '');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}</pre>
+<pre data-lang="python" hidden>import hashlib, hmac, time
+
+def verify_spacepay(raw_body: bytes, header: str, secret: str, tolerance=300) -> bool:
+    parts = dict(p.split("=", 1) for p in header.split(","))
+    if abs(time.time() - int(parts["t"])) > tolerance:
+        return False
+    expected = hmac.new(
+        secret.encode(), f"{parts['t']}.".encode() + raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, parts.get("v1", ""))</pre>
+<pre data-lang="express" hidden>// express.json 会丢掉原始字节，用 verify 钩子留一份
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
+
+app.post('/webhooks/spacepay', (req, res) => {
+  const ok = verifySpacePay(req.rawBody, req.get('X-SpacePay-Signature'), process.env.SPACEPAY_WEBHOOK_SECRET);
+  if (!ok) return res.status(400).send('bad signature');
+  // ...
+  res.json({ ok: true });
+});</pre>
+      </div>
+      <div class="callout tip"><span class="ico">✓</span><span>校验时间戳（默认 5 分钟）比只验签名更重要：它挡住重放攻击。签名对但时间戳太旧，直接丢弃。</span></div>
+
+      <h2 id="deliver">发货</h2>
+      <p>验签通过后按顺序做：</p>
+      <ol class="steps">
+        <li><b>去重</b>用 <code>X-SpacePay-Delivery</code> 或事件 <code>id</code> 建唯一索引；重复事件直接返回 <code>200</code>。</li>
+        <li><b>找订单</b>用 <code>data.reference</code> 查你库里的充值订单，不要用金额反查。</li>
+        <li><b>核对</b>金额、币种、<code>metadata.gs_user_id</code>、<code>metadata.sku</code> 与下单时一致。</li>
+        <li><b>发货 + 标记</b>在同一个事务里给 <code>gs_user_id</code> 加余额 / 发道具，并把支付单标成已处理。</li>
+        <li><b>返回 2xx</b>10 秒内响应；返回非 2xx 或超时会重试。</li>
+      </ol>
+      <div class="codeblock">
+        <div class="code-head"><div class="lang-tabs"><button class="active" data-lang="node">Node.js</button></div><button class="copy">复制</button></div>
+<pre data-lang="node">app.post('/webhooks/spacepay', (req, res) => {
+  if (!verifySpacePay(req.rawBody, req.get('X-SpacePay-Signature'), SECRET)) {
+    return res.status(400).json({ error: 'bad signature' });
+  }
+  const evt = req.body;
+  if (seen.has(evt.id)) return res.json({ ok: true });   // 幂等
+  seen.add(evt.id);
+
+  if (evt.type === 'payment.succeeded') {
+    const order = db.orders.get(evt.data.reference);
+    if (!order) return res.status(409).json({ error: 'unknown order' });
+    if (order.status !== 'pending') return res.json({ ok: true }); // 已处理
+    if (evt.data.amount_cents !== order.amountCents) return res.status(400).json({ error: 'amount mismatch' });
+
+    db.tx(() => {
+      credit(order.gsUserId, order.sku);
+      order.status = 'paid';
+    });
+  }
+  res.json({ ok: true });
+});</pre>
+      </div>
+
+      <h2 id="retry">重试与去重</h2>
+      <ul>
+        <li>失败后按 <b>1 分钟、5 分钟、30 分钟、2 小时、6 小时</b> 重试，共 6 次；后台可手动重投。</li>
+        <li><code>X-SpacePay-Delivery</code> 在所有重试中保持不变，是官方去重键。</li>
+        <li>重复投递是常态，不是异常：发货逻辑必须幂等（唯一索引 / 状态机）。</li>
+      </ul>
+
+      <h2 id="local">本地联调</h2>
+      <ul>
+        <li>没有公网地址时，先用 SpacePay 的「重投」功能对着内网穿透地址测试。</li>
+        <li>自己造签名验证：<code>printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET"</code>。</li>
+        <li>Webhook 没到不代表没付钱：先用查询接口按 <code>reference</code> 兜底，再等回调。</li>
+      </ul>
+    </article>
+  </main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

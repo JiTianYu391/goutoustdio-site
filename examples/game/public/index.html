@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例小游戏 · GoutouStdio 开放平台</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px 16px;
+  font:15px/1.7 Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:radial-gradient(900px 520px at 80% 0%,#241f52 0%,#0a0c13 55%,#05060a 100%);color:#e8eaf2}
+.card{width:100%;max-width:480px;background:rgba(16,18,28,.86);border:1px solid rgba(255,255,255,.09);
+  border-radius:18px;padding:26px 24px;box-shadow:0 24px 60px rgba(0,0,0,.45)}
+h1{margin:0 0 4px;font-size:20px;letter-spacing:-.01em}
+p{margin:8px 0;color:#a9b0c3}
+.who{display:flex;align-items:center;gap:12px;margin:18px 0;padding:12px;border-radius:12px;
+  background:rgba(124,108,255,.1);border:1px solid rgba(124,108,255,.25)}
+.avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;
+  background:linear-gradient(135deg,#7c6cff,#22d3ee);color:#05060a;flex:none}
+.coins{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
+.coins span{font-size:12px;color:#8b93a8;font-weight:500;margin-left:2px}
+button{font:inherit;font-weight:600;border-radius:11px;border:1px solid transparent;padding:11px 14px;cursor:pointer}
+.primary{width:100%;background:linear-gradient(135deg,#7c6cff,#5b7bff);color:#fff;margin-top:12px}
+.ghost{background:transparent;border-color:rgba(255,255,255,.16);color:#c9cede;width:100%;margin-top:10px}
+.products{display:grid;gap:8px;margin-top:16px}
+.product{display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03)}
+.product b{display:block}
+.product small{color:#8b93a8}
+.product .price{margin-left:auto;font-variant-numeric:tabular-nums}
+.product button{padding:8px 12px;background:rgba(255,255,255,.08);color:#e8eaf2;border:1px solid rgba(255,255,255,.12)}
+.notice{margin-top:14px;font-size:13px;color:#8b93a8;min-height:20px}
+a{color:#8f83ff}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>示例小游戏</h1>
+  <p id="sub">用 GoutouStdio 账号登录，充值的钱会按订单发货。</p>
+
+  <div id="logged-out">
+    <button class="primary" id="login">使用 GoutouStdio 登录</button>
+    <button class="ghost" id="guest">先随便逛逛</button>
+  </div>
+
+  <div id="logged-in" hidden>
+    <div class="who">
+      <span class="avatar" id="avatar">?</span>
+      <div>
+        <b id="name">@player</b><br>
+        <small id="uid" style="color:#8b93a8"></small>
+      </div>
+      <div class="coins"><b id="credits">0</b><span>钻石</span></div>
+    </div>
+    <div class="products" id="products"></div>
+    <button class="ghost" id="logout">退出登录</button>
+  </div>
+  <div class="notice" id="notice"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const notice = (text) => { $('notice').textContent = text || ''; };
+
+// 商品配置就在游戏客户端里：想卖什么、叫什么、多少钱，改这里就行。
+// 服务端只校验格式并兜底；价格以这里传过去的为准（示例是信任客户端）。
+const GAME_PRODUCTS = [
+  { sku: 'monthly_pass', name: '月卡', price: '5.00', credits: 300 },
+  { sku: 'starter_pack', name: '新手礼包', price: '9.90', credits: 600 },
+];
+// 兜底商品：客户端没配时用服务端默认（100 钻石），游戏可以改成自己的
+let DEFAULT_PRODUCT = null;
+
+async function render() {
+  const r = await fetch('/api/state').then((x) => x.json());
+  DEFAULT_PRODUCT = r.defaultProduct;
+  const p = r.player;
+  $('logged-out').hidden = !!p;
+  $('logged-in').hidden = !p;
+  if (!p) { $('sub').textContent = '用 GoutouStdio 账号登录，充值的钱会按订单发货。'; return; }
+  $('sub').textContent = '已登录。余额与订单都在服务端，商品配置由客户端传。';
+  $('name').textContent = p.displayName || p.username;
+  $('uid').textContent = 'sub: ' + p.sub;
+  $('avatar').textContent = (p.username || '?')[0].toUpperCase();
+  $('credits').textContent = p.credits;
+
+  const products = GAME_PRODUCTS.length ? GAME_PRODUCTS : [DEFAULT_PRODUCT];
+  const list = $('products');
+  list.innerHTML = '';
+  for (const item of products) {
+    const row = document.createElement('div');
+    row.className = 'product';
+    row.innerHTML = `<div><b>${item.name}</b><small>${item.sku}</small></div>
+      <span class="price">$${item.price}</span><button>充值</button>`;
+    row.querySelector('button').addEventListener('click', () => recharge(item));
+    list.appendChild(row);
+  }
+}
+
+async function recharge(product) {
+  notice('正在创建订单…');
+  const r = await fetch('/api/recharge', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ product }),
+  }).then((x) => x.json());
+  if (r.error) return notice('下单失败：' + r.error);
+  notice('订单已创建，正在打开付款页…');
+  location.href = r.pay_url;
+}
+
+$('login').addEventListener('click', () => { location.href = '/login'; });
+$('guest').addEventListener('click', () => notice('游客模式：正式项目里可以先建游客档，登录后再合并。'));
+$('logout').addEventListener('click', () => { location.href = '/logout'; });
+
+if (new URLSearchParams(location.search).get('paid')) notice('付款完成，等 Webhook 到账后刷新余额。');
+render().catch((e) => notice(String(e)));
+</script>
+</body>
+</html>

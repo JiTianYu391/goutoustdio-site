@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>扫码付款 · 示例小游戏</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px 16px;
+  font:15px/1.7 Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:radial-gradient(900px 520px at 80% 0%,#241f52 0%,#0a0c13 55%,#05060a 100%);color:#e8eaf2}
+a{color:#8f83ff}
+.card{width:100%;max-width:420px;background:rgba(16,18,28,.9);border:1px solid rgba(255,255,255,.09);
+  border-radius:20px;padding:24px;box-shadow:0 24px 60px rgba(0,0,0,.45)}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.back{font-size:13px;color:#8b93a8;text-decoration:none}
+.tag{font-size:11px;padding:3px 8px;border-radius:999px;background:rgba(124,108,255,.16);color:#b3a9ff;border:1px solid rgba(124,108,255,.3)}
+h1{margin:0;font-size:15px;font-weight:500;color:#8b93a8}
+.amount{font:700 40px/1.1 Inter,system-ui;letter-spacing:-.03em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.desc{color:#c9cede;font-size:14px}
+.ref{color:#6f778c;font:12px/1.6 ui-monospace,Menlo,monospace;margin-top:2px;word-break:break-all}
+hr{border:0;border-top:1px solid rgba(255,255,255,.08);margin:18px 0}
+.qr-wrap{display:grid;place-items:center;gap:10px}
+.qr-box{width:236px;height:236px;border-radius:16px;background:#fff;padding:12px;display:grid;place-items:center;box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+.qr-box img{width:100%;height:100%;display:block}
+.qr-hint{font-size:13px;color:#8b93a8;text-align:center;line-height:1.6}
+.qr-hint b{color:#e8eaf2;font-weight:600}
+.actions{margin-top:16px;display:grid;gap:8px}
+button,.btn{font:inherit;font-weight:600;border-radius:12px;border:1px solid transparent;padding:12px 14px;cursor:pointer;text-align:center;text-decoration:none;display:block}
+.primary{background:linear-gradient(135deg,#7c6cff,#5b7bff);color:#fff}
+.ghost{background:transparent;border-color:rgba(255,255,255,.16);color:#c9cede}
+.meta{display:flex;justify-content:space-between;gap:10px;margin-top:14px;font-size:12px;color:#6f778c}
+.meta b{color:#a9b0c3;font-weight:500}
+.state{text-align:center;padding:26px 8px}
+.state .icon{width:58px;height:58px;border-radius:50%;display:inline-grid;place-items:center;font-size:26px;margin-bottom:12px}
+.state.ok .icon{background:rgba(52,211,153,.14);color:#34d399}
+.state.bad .icon{background:rgba(255,107,107,.14);color:#ff8a8a}
+.state h2{margin:0 0 6px;font-size:20px}
+.state p{margin:0;color:#8b93a8;font-size:13px}
+.spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,.18);border-top-color:#b3a9ff;border-radius:50%;animation:spin .9s linear infinite;display:inline-block;vertical-align:-4px;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.note{margin-top:14px;font-size:11px;color:#6f778c;text-align:center;line-height:1.7}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <a class="back" href="/">← 返回游戏</a>
+    <span class="tag">虚拟资金演示</span>
+  </div>
+
+  <main id="loading"><p style="color:#8b93a8;font-size:13px"><span class="spinner"></span>正在加载订单…</p></main>
+
+  <main id="pay" hidden>
+    <h1>应付金额</h1>
+    <div class="amount" id="amount">$0.00</div>
+    <div class="desc" id="desc"></div>
+    <div class="ref" id="ref"></div>
+    <hr>
+    <div class="qr-wrap">
+      <div class="qr-box"><img id="qr" alt="付款二维码"></div>
+      <p class="qr-hint"><b>用手机扫一扫</b>，在 SpacePay 完成付款<br>扫码后确认金额与商户再支付</p>
+    </div>
+    <div class="actions">
+      <button class="primary" id="open">在当前设备打开收款页</button>
+      <button class="ghost" id="refresh">我已付款，刷新状态</button>
+    </div>
+    <div class="meta"><span>剩余时间 <b id="countdown">--:--</b></span><span id="status">等待付款</span></div>
+  </main>
+
+  <main id="done" class="state ok" hidden>
+    <span class="icon">✓</span>
+    <h2>付款成功</h2>
+    <p id="doneText"></p>
+    <div class="actions"><a class="btn primary" href="/">回到游戏</a></div>
+  </main>
+
+  <main id="expired" class="state bad" hidden>
+    <span class="icon">!</span>
+    <h2 id="badTitle">订单已过期</h2>
+    <p id="badText">请回到游戏重新下单。</p>
+    <div class="actions"><a class="btn ghost" href="/">返回游戏</a></div>
+  </main>
+
+  <p class="note">由 SpacePay 提供收款 · 不接入真实银行卡<br>二维码内容就是收款链接，任何相机都能扫</p>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const ref = location.pathname.split('/').pop();
+let order = null, timer = null, poll = null, closed = false;
+
+const money = (v) => '$' + Number(v).toFixed(2);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function fetchOrder() {
+  const r = await fetch('/api/order/' + encodeURIComponent(ref));
+  return r.json();
+}
+
+function render() {
+  $('loading').hidden = true;
+  if (order.error) return fail('订单不存在', '请回到游戏重新下单。');
+  if (order.status === 'paid') return success();
+  if (order.status !== 'pending') return fail('订单已关闭', '请回到游戏重新下单。');
+
+  $('pay').hidden = false;
+  $('amount').textContent = money(order.amount);
+  $('desc').textContent = order.name;
+  $('ref').textContent = '订单号 ' + order.reference;
+  if (order.qr_url) $('qr').src = order.qr_url;
+  else { $('qr').hidden = true; }
+  $('open').onclick = () => { location.href = order.checkout_url; };
+  $('refresh').onclick = () => tick(true);
+
+  clearInterval(timer);
+  timer = setInterval(() => {
+    const left = Math.max(0, Math.floor((order.expires_at - Date.now()) / 1000));
+    $('countdown').textContent = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0');
+    if (left <= 0) { clearInterval(timer); fail('支付链接已过期', '订单超过 30 分钟，请重新下单。'); }
+  }, 1000);
+}
+
+function success() {
+  clearInterval(timer); clearInterval(poll);
+  $('pay').hidden = true; $('expired').hidden = true;
+  $('done').hidden = false;
+  $('doneText').textContent = `已到账 ${order.credits} 钻石，余额会在游戏首页刷新。`;
+}
+
+function fail(title, text) {
+  clearInterval(timer); clearInterval(poll);
+  $('pay').hidden = true; $('done').hidden = true;
+  $('expired').hidden = false;
+  $('badTitle').textContent = title;
+  $('badText').textContent = text;
+}
+
+async function tick(force) {
+  if (closed) return;
+  try {
+    order = await fetchOrder();
+    if (order.status === 'paid') return success();
+    if (order.status !== 'pending') return fail('订单已关闭', '请回到游戏重新下单。');
+    if (force) $('status').textContent = '已刷新，等待付款';
+  } catch (_) { /* 网络抖动就等下一次 */ }
+}
+
+(async () => {
+  order = await fetchOrder();
+  render();
+  poll = setInterval(tick, 3000);
+  window.addEventListener('beforeunload', () => { closed = true; });
+})();
+</script>
+</body>
+</html>

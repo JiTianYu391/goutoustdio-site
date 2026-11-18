@@ -121,6 +121,51 @@ db.exec(`
   );
 `);
 
+// ---- 开放平台：第三方应用（游戏）用 OAuth 2.0 接入账号 ----
+db.exec(`
+  CREATE TABLE IF NOT EXISTS oauth_clients (
+    id TEXT PRIMARY KEY,              -- client_id，如 gs_app_xxxxxxxx
+    secret_hash TEXT,                 -- null = 公共客户端（只能 PKCE，无密钥）
+    name TEXT NOT NULL,
+    homepage TEXT NOT NULL DEFAULT '',
+    redirect_uris TEXT NOT NULL,      -- JSON 数组，精确匹配
+    scopes TEXT NOT NULL DEFAULT 'profile',
+    created_at INTEGER NOT NULL,
+    owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    disabled INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS oauth_codes (
+    id TEXT PRIMARY KEY,              -- sha256(code)
+    client_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    redirect_uri TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id TEXT PRIMARY KEY,              -- sha256(access_token)
+    client_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL,
+    refresh_hash TEXT,                -- sha256(refresh_token)，未签发为 null
+    refresh_used INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER NOT NULL,
+    refresh_expires_at INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS oauth_consents (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, client_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_hash);
+  CREATE INDEX IF NOT EXISTS idx_oauth_codes_client ON oauth_codes(client_id, user_id);
+`);
+
 // 站点级随机密钥（退订链接签名用），首次启动生成并持久化
 export function siteSecret() {
   let row = db.prepare("SELECT value FROM settings WHERE key='secret'").get();
