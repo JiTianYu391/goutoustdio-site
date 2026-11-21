@@ -1,4 +1,5 @@
 import express from "express";
+import serveIndex from "serve-index";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import path from "node:path";
@@ -18,7 +19,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 8080;
 const pub = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
 const webauthnBundle = path.join(pub, "..", "node_modules", "@simplewebauthn", "browser", "dist", "bundle", "index.umd.min.js");
-const repoDir = "/data/spaceos/repo";
+const repoDir = process.env.SPK_REPO_DIR || "/data/spaceos/repo";
 
 app.set("trust proxy", 1); // FadeHost 反代
 app.disable("x-powered-by");
@@ -106,6 +107,11 @@ app.use("/spaceos/repo", express.static(repoDir, {
       res.set("Cache-Control", "public, max-age=31536000, immutable");
     }
   },
+}));
+app.use("/spaceos/repo", serveIndex(repoDir, {
+  icons: false,
+  view: "details",
+  hidden: false,
 }));
 app.use("/spaceos/repo", (_req, res) => res.status(404).type("text/plain").send("not found"));
 
