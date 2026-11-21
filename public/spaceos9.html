@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="SpaceOS 9：Rust 写的 SpaceKernel 3.0 内核，实现 Linux ABI，带 FAT32 根盘、systemg（PID 1）、splibc 和动态链接的 BusyBox。x86_64 公开预览镜像可下载。">
+  <meta name="description" content="SpaceOS 9：Rust 写的 SpaceKernel 3.0 内核，保留 Linux 64 位 ABI，覆盖 x86_64 / AArch64 / RISC-V 64；x86_64 已带 SPUI 桌面、浏览器、网络栈与 spk 软件源。">
   <title>SpaceOS 9 | GoutouStdio</title>
   <!-- head:start -->
   <link rel="stylesheet" href="css/tokens.css?v=87f53e71">
@@ -57,6 +57,7 @@
               <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
               <li><a href="ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
               <li><a href="spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
+              <li><a href="/spaceos/repo/"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>SpaceOS 9 软件源</a></li>
               <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
             </ul>
           </details></li>
@@ -83,14 +84,14 @@
         <div>
           <p class="hero-badge"><span class="badge badge-warn">公开预览</span></p>
           <h1>SpaceOS 9</h1>
-          <p class="lede">内核 SpaceKernel 3.0 用 Rust 写成，实现 Linux 64 位 ABI，目标是直接运行现成的 Linux 程序。目前验证过 musl 动态链接的 BusyBox。</p>
+          <p class="lede">内核 SpaceKernel 3.0 用 Rust 写成，保留 Linux 64 位 ABI，目标是在 x86_64、AArch64、RISC-V 64 上运行现成的 Linux 程序。x86_64 已能启动 SPUI 桌面、浏览器和网络栈，AArch64 / RISC-V 完成内核启动自测。</p>
           <div class="actions">
             <a class="button" href="spaceos9-download.html"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>下载预览镜像</a>
             <a class="button button-secondary" href="https://github.com/ViudiraTech/SpaceOS-9" rel="noopener" target="_blank">查看源码</a>
           </div>
           <dl class="spec">
             <div><dt>内核</dt><dd>SpaceKernel 3.0（SPK），Rust</dd></div>
-            <div><dt>架构</dt><dd>x86_64</dd></div>
+            <div><dt>架构</dt><dd>x86_64 · AArch64 · RISC-V 64</dd></div>
             <div><dt>ABI</dt><dd>Linux 64 位</dd></div>
           </dl>
         </div>
@@ -110,6 +111,7 @@
           <li><a href="#boot-chain">启动顺序</a></li>
           <li><a href="#changes">这一版新增</a></li>
           <li><a href="#boundary">验证情况</a></li>
+          <li><a href="#repo">软件源</a></li>
           <li><a href="#license">源码与许可</a></li>
           </ul>
         </nav>
@@ -118,18 +120,19 @@
         <svg class="icon notice-icon" aria-hidden="true"><use href="#i-info"/></svg>
         <div>
           <p class="notice-title">这是公开预览</p>
-          <p>内核自测、三个架构的编译检查和 QEMU 启动已经通过，用户态和驱动还在补。下载前请读<a href="spaceos9-download.html#usage">使用声明</a>。</p>
+          <p>三架构内核启动自测通过；x86_64 用户态、SPUI 桌面与网络栈已进入镜像，GPU 3D、音频与更多 Linux ABI 仍在持续验证。下载前请读<a href="spaceos9-download.html#usage">使用声明</a>。</p>
         </div>
       </div>
 
           <h2 id="overview">组成</h2>
           <ul>
-            <li><strong>内核</strong>：SpaceKernel 3.0，Rust、soft-float，x86_64 优先。</li>
-            <li><strong>ABI</strong>：Linux 64 位，支持 ELF / PIE / 动态链接、信号、futex、epoll、AF_UNIX。</li>
-            <li><strong>根盘</strong>：FAT32，由 Limine 模块提供，只读挂载。</li>
-            <li><strong>PID 1</strong>：systemg，按依赖启动服务并回收进程。</li>
-            <li><strong>用户态</strong>：自带 C 库 splibc 和 sh；BusyBox 通过 musl 动态链接运行。</li>
-            <li><strong>终端</strong>：ash，支持作业控制和 Ctrl-C / Ctrl-Z。</li>
+            <li><strong>内核</strong>：SpaceKernel 3.0（SPK），Rust、soft-float；SMP、EEVDF 调度、SLAB、VFS / 页缓存。</li>
+            <li><strong>架构</strong>：x86_64 优先，AArch64 / RISC-V 64 共享核心；三架构内核启动自测通过。</li>
+            <li><strong>ABI</strong>：Linux 64 位；ELF / PIE / PT_INTERP、线程与进程、mmap / brk、信号、futex、epoll、AF_UNIX / INET / INET6 / NETLINK。</li>
+            <li><strong>根盘与 PID 1</strong>：FAT32 根盘由 Limine 模块提供；systemg 按依赖启动服务并回收进程。</li>
+            <li><strong>用户态</strong>：splibc、sh、SPUI 4.0 桌面（DDM / OOBE、浏览器、SPIME 中文输入法）；BusyBox 通过 musl 动态链接运行。</li>
+            <li><strong>图形 / 音频 / 网络</strong>：DRM/KMS 核心、GEM / PRIME、simpledrm；ALSA 兼容音频栈与 HDA / SB16 / virtio-snd 模块；TCP / UDP / ICMP / NDP 与 NetworkManager。</li>
+            <li><strong>包管理</strong>：spk 原生包管理器（P0：包格式、签名仓库、hello 测试包），软件源见下。</li>
           </ul>
 
           <h2 id="boot-chain">启动顺序</h2>
@@ -143,10 +146,12 @@
 
           <h2 id="changes">这一版新增</h2>
           <ul>
-            <li><strong>VFS 缓存</strong>：Linux 语义的 dentry / inode 缓存和 LRU 回收；FAT32 大文件读取加了簇链缓存。</li>
-            <li><strong>动态链接</strong>：内核装载 ELF 解释器和 PIE，能运行 musl 动态链接的 BusyBox。</li>
-            <li><strong>进程与信号</strong>：线程、进程组与会话、POSIX 信号、futex、epoll、signalfd、timerfd。</li>
-            <li><strong>终端</strong>：控制终端、前后台进程组和 raw 模式。</li>
+            <li><strong>SPUI 4.0</strong>：VortexGlass 毛玻璃合成、多窗口与标题栏按钮；DDM 显示管理器与 OOBE 首次启动向导。</li>
+            <li><strong>浏览器与输入法</strong>：基于 LiteHTML + QuickJS-ng 的 Space 浏览器；SPIME 原生中文输入法。</li>
+            <li><strong>调度与内存</strong>：SMP / EEVDF、等待队列、熵池 / CRNG、fork 地址空间修复与多项性能修复。</li>
+            <li><strong>设备与图形</strong>：HAL v1、USB（xHCI、HID 键鼠、大容量存储）、通用 DRM/KMS 核心与 simpledrm 自测；virtio-gpu 迁移后的 QEMU 回归进行中。</li>
+            <li><strong>网络 / 音频</strong>：TCP / UDP / ICMP / NDP 与 NetworkManager 服务；ALSA 兼容音频栈、HDA / SB16 / virtio-snd 模块。</li>
+            <li><strong>构建与包管理</strong>：Kconfig、三架构 ISO、QEMU 启动矩阵与 CI；spk 包格式 / 签名仓库 P0 已落地。</li>
           </ul>
 
           <h2 id="boundary">验证情况</h2>
@@ -156,12 +161,18 @@
                 <tr><th scope="col">范围</th><th scope="col">状态</th><th scope="col">说明</th></tr>
               </thead>
               <tbody>
-                <tr><th scope="row">x86_64</th><td><span class="badge badge-ok">已验证</span></td><td>QEMU / UEFI 启动、systemg、BusyBox 动态加载、ash 交互和内核自测。</td></tr>
-                <tr><th scope="row">aarch64 / riscv64</th><td><span class="badge badge-warn">仅编译检查</span></td><td>用户态和启动链路未验证。</td></tr>
-                <tr><th scope="row">真实硬件</th><td><span class="badge badge-warn">未验证</span></td><td>只在 QEMU 的 VirtIO GPU 2D 上测过。</td></tr>
+                <tr><th scope="row">x86_64</th><td><span class="badge badge-ok">已验证</span></td><td>QEMU / UEFI 与 KVM 宿主 release 启动；systemg、BusyBox、SPUI 桌面、浏览器、网络栈回归。</td></tr>
+                <tr><th scope="row">AArch64</th><td><span class="badge badge-ok">自测通过</span></td><td>QEMU GICv2 / GICv3；用户态与桌面镜像仍以 x86_64 为主。</td></tr>
+                <tr><th scope="row">RISC-V 64</th><td><span class="badge badge-ok">自测通过</span></td><td>QEMU Sv39 / Sv48；用户态与桌面镜像仍以 x86_64 为主。</td></tr>
+                <tr><th scope="row">DRM / KMS</th><td><span class="badge badge-warn">部分验证</span></td><td>核心与 simpledrm 自测通过；virtio-gpu 迁移后的 QEMU 回归进行中，VirGL / Venus 仍在内核 ABI 建设阶段。</td></tr>
+                <tr><th scope="row">真实硬件</th><td><span class="badge badge-warn">未宣称</span></td><td>当前以 QEMU / KVM 验证为主；KVM 宿主 i5-9400F release 通过，不代表裸机完成验收。</td></tr>
               </tbody>
             </table>
           </div>
+
+          <h2 id="repo">软件源</h2>
+          <p>SpaceOS 9 的原生包仓库已上线：<a href="/spaceos/repo/">https://goutoustdio.top/spaceos/repo/</a>。当前提供 <code>x86_64</code> 索引与 <code>hello</code> 测试包；<code>spk</code> 包管理器正在开发中。</p>
+          <p><a class="button button-secondary" href="/spaceos/repo/"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>浏览软件源</a></p>
 
           <h2 id="license">源码与许可</h2>
           <p>源码在 <a href="https://github.com/ViudiraTech/SpaceOS-9" rel="noopener" target="_blank">ViudiraTech/SpaceOS-9</a>。镜像里的 BusyBox、musl、Limine 等组件各有许可，见 <a href="spaceos9/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>。</p>
@@ -195,6 +206,7 @@
           <li><a href="ota/index.html">PySpOS 更新包</a></li>
           <li><a href="ota/releases.html">PySpOS 版本历史</a></li>
           <li><a href="spaceos9-download.html">SpaceOS 9 镜像</a></li>
+          <li><a href="/spaceos/repo/">SpaceOS 9 软件源</a></li>
           <li><a href="spaceos8-download.html">SpaceOS 8 镜像</a></li>
         </ul>
       </nav>

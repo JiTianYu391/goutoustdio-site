@@ -57,6 +57,7 @@
               <li><a href="ota/index.html"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>PySpOS 更新包</a></li>
               <li><a href="ota/releases.html"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>PySpOS 版本历史</a></li>
               <li><a href="spaceos9-download.html" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-chip"/></svg>SpaceOS 9 镜像</a></li>
+              <li><a href="/spaceos/repo/"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>SpaceOS 9 软件源</a></li>
               <li><a href="spaceos8-download.html"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>SpaceOS 8 镜像</a></li>
             </ul>
           </details></li>
@@ -85,6 +86,7 @@
         <p class="lede">x86_64 的可启动 ISO，包含 SpaceKernel 3.0、FAT32 根盘、systemg（PID 1）、splibc 和可交互的 BusyBox ash。下载前请读使用声明，下载后核对 SHA-256。</p>
         <div class="actions">
           <a class="button" href="https://github.com/ViudiraTech/SpaceOS-9/releases/download/v9.0.0-preview/SpaceOS-9-x86_64.iso" download="SpaceOS-9-x86_64.iso"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>下载镜像（69.8 MiB）</a>
+          <a class="button button-secondary" href="/spaceos/repo/"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>SpaceOS9 软件源</a>
           <a class="button button-secondary" href="#usage">先读使用声明</a>
           <a class="button button-secondary" href="spaceos9.html">返回介绍</a>
         </div>
@@ -157,7 +159,7 @@
   -device virtio-gpu-pci -cdrom SpaceOS-9-x86_64.iso</code></pre>
           <p>建议用图形窗口；串口控制台也可以，加 <code>-serial stdio</code>。</p>
           <p>启动后 systemg 会拉起 console shell。看到 <code>/ #</code> 后可以执行 <code>uname -a</code>、<code>id</code>、<code>nproc</code>、<code>ls</code>、<code>cat /etc/os-release</code>。退出 shell 后，systemg 会重新拉起它。</p>
-          <p>已知限制：真实 GPU、音频、网络和部分 Linux ABI 还在做；aarch64 / riscv64 的用户态不在这个镜像里。</p>
+          <p>已知限制：该镜像是 v9.0.0-preview 构建；当前仓库已包含 SPUI 桌面、网络、音频等更多工作，新的预览镜像在准备中。真实 GPU 3D 与部分 Linux ABI 仍在做；aarch64 / riscv64 的用户态不在这个镜像里。</p>
         </div>
       </div>
     </section>
@@ -212,6 +214,7 @@
           <li><a href="ota/index.html">PySpOS 更新包</a></li>
           <li><a href="ota/releases.html">PySpOS 版本历史</a></li>
           <li><a href="spaceos9-download.html" aria-current="page">SpaceOS 9 镜像</a></li>
+          <li><a href="/spaceos/repo/">SpaceOS 9 软件源</a></li>
           <li><a href="spaceos8-download.html">SpaceOS 8 镜像</a></li>
         </ul>
       </nav>
