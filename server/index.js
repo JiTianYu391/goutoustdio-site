@@ -18,6 +18,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 8080;
 const pub = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
 const webauthnBundle = path.join(pub, "..", "node_modules", "@simplewebauthn", "browser", "dist", "bundle", "index.umd.min.js");
+const repoDir = "/data/spaceos/repo";
 
 app.set("trust proxy", 1); // FadeHost 反代
 app.disable("x-powered-by");
@@ -90,6 +91,24 @@ const page = (file) => (_req, res) => res.sendFile(path.join(pub, file));
 for (const p of ["login", "register", "account", "verify", "forgot", "reset", "admin"]) app.get(`/${p}`, page(`${p}.html`));
 app.get(["/support", "/support/:id"], page("support.html"));
 app.get("/u/:username", page("user.html"));
+// ---------- SpaceOS 包仓库：持久盘上的静态文件 ----------
+// /data 是 FadeHost 的持久盘，redeploy 不会清空；包文件不提交进 Git。
+app.use("/spaceos/repo", express.static(repoDir, {
+  index: false,
+  dotfiles: "deny",
+  redirect: false,
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    if (filePath.endsWith("index.json") || filePath.endsWith(".sig")) {
+      res.set("Cache-Control", "no-cache");
+    } else {
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+    }
+  },
+}));
+app.use("/spaceos/repo", (_req, res) => res.status(404).type("text/plain").send("not found"));
+
 app.use(express.static(pub, { extensions: ["html"] }));
 app.use((_req, res) => res.status(404).sendFile(path.join(pub, "index.html")));
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: "服务器错误" }); });
