@@ -103,6 +103,8 @@ app.use("/spaceos/repo", express.static(repoDir, {
   setHeaders(res, filePath) {
     const name = path.basename(filePath);
     const relative = path.relative(repoDir, filePath).split(path.sep).join("/");
+    // <arch>/pkg/... and <arch>/previews/... live below the repository root.
+    const segments = relative.split("/");
     // Only .spk files are truly immutable: the version is part of the file
     // name and a published package is never rewritten. Everything else in the
     // repository is regenerated in place on every publish, so caching it --
@@ -114,8 +116,8 @@ app.use("/spaceos/repo", express.static(repoDir, {
       name === "store.json" ||
       name === "store.in.json" ||
       name.endsWith(".sig") ||
-      relative.startsWith("pkg/") ||
-      relative.startsWith("previews/");
+      segments.includes("pkg") ||
+      segments.includes("previews");
     if (rewritten) {
       res.set("Cache-Control", "no-cache");
     } else {
