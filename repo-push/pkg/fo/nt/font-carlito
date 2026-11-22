@@ -1,0 +1,1 @@
+{"name":"font-carlito","epoch":0,"version":"1.0.0","release":1,"arch":"x86_64","abi":"spaceos-1","filename":"font-carlito-1.0.0-1-x86_64.spk","size":813709,"sha256":"b66e5e63c0a28cd5fe9085b19f382a13599066b5e0113095101ee168bbf5d208","depends":[],"provides":["font"],"conflicts":[],"replaces":[],"summary":"Carlito 界面字体"}

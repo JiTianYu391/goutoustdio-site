@@ -1,0 +1,1 @@
+{"name":"space-editor","epoch":0,"version":"1.0.0","release":4,"arch":"x86_64","abi":"spaceos-1","filename":"space-editor-1.0.0-4-x86_64.spk","size":1544783,"sha256":"bb6720ffa734e69f0442a85c82ea4f103a54e7b27c5aa56e5f73e676b47afa08","depends":[],"provides":["space-editor"],"conflicts":[],"replaces":[],"summary":"SpaceEditor：所见即所得 A4 分页文档编辑器"}

@@ -1,0 +1,1 @@
+{"name":"theme-aqua","epoch":0,"version":"1.0.0","release":5,"arch":"x86_64","abi":"spaceos-1","filename":"theme-aqua-1.0.0-5-x86_64.spk","size":106876,"sha256":"b86fb240873b2c73278cfd47c99f5cccead597de98f2bd2eaf30796e1123aa4f","depends":[],"provides":["spui-theme"],"conflicts":[],"replaces":[],"summary":"Aqua Classic SPUI theme"}

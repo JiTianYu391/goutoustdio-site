@@ -1,0 +1,1 @@
+{"name":"theme-ambiance","epoch":0,"version":"1.0.0","release":5,"arch":"x86_64","abi":"spaceos-1","filename":"theme-ambiance-1.0.0-5-x86_64.spk","size":53310,"sha256":"f1469927fc91c844324426df5f5f1a6d3d73a47ca60bcda1cdb3c945126b75a3","depends":[],"provides":["spui-theme"],"conflicts":[],"replaces":[],"summary":"Ambiance SPUI theme"}

@@ -1,0 +1,1 @@
+{"name":"font-croscore","epoch":0,"version":"1.0.0","release":2,"arch":"x86_64","abi":"spaceos-1","filename":"font-croscore-1.0.0-2-x86_64.spk","size":2344302,"sha256":"96da0aa62782fc95f4d7052ef677d413597d43c9a990cd7c4dd877f5eeed8073","depends":[],"provides":["font"],"conflicts":[],"replaces":[],"summary":"Croscore 字体集"}

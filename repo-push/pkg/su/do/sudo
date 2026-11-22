@@ -1,0 +1,1 @@
+{"name":"sudo","epoch":0,"version":"0.1.0","release":5,"arch":"x86_64","abi":"spaceos-1","filename":"sudo-0.1.0-5-x86_64.spk","size":652072,"sha256":"658d12df755f3e4efcbdd361ccc2b3d21510d5df7cba5876955df885516517de","depends":[],"provides":["sudo"],"conflicts":[],"replaces":[],"summary":"SpaceOS-9 sudo and doas"}

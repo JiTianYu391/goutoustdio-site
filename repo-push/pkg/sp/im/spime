@@ -1,0 +1,1 @@
+{"name":"spime","epoch":0,"version":"1.0.0","release":1,"arch":"x86_64","abi":"spaceos-1","filename":"spime-1.0.0-1-x86_64.spk","size":17395141,"sha256":"1408b307c0fe7feb628e5174d45fad3e2c791cd56e006b5dc68be1fd00ea4ec6","depends":[],"provides":["spime","ime"],"conflicts":[],"replaces":[],"summary":"SPIME 中文输入法"}

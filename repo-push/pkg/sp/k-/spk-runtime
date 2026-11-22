@@ -1,0 +1,1 @@
+{"name":"spk-runtime","epoch":0,"version":"1.0.0","release":10,"arch":"x86_64","abi":"spaceos-1","filename":"spk-runtime-1.0.0-10-x86_64.spk","size":2177870,"sha256":"9b702cbdeb8bc8dd524b2a2f5b8b5de1755f891f63731f1925f219d3784a1cb6","depends":[],"provides":["spk-runtime","base-core"],"conflicts":[],"replaces":[],"summary":"spk package manager runtime for desktop images"}

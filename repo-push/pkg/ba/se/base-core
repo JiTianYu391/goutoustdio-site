@@ -1,0 +1,1 @@
+{"name":"base-core","epoch":0,"version":"1.0.0","release":12,"arch":"x86_64","abi":"spaceos-1","filename":"base-core-1.0.0-12-x86_64.spk","size":3263810,"sha256":"cbc4b57658e6acb3561bd5bd90e3a7123b4a2618173447247b0d583391a347ee","depends":[],"provides":["base-core"],"conflicts":[],"replaces":[],"summary":"SpaceOS-9 base runtime core"}
