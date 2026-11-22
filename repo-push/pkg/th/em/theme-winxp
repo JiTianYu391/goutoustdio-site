@@ -1,0 +1,1 @@
+{"name":"theme-winxp","epoch":0,"version":"1.0.0","release":8,"arch":"x86_64","abi":"spaceos-1","filename":"theme-winxp-1.0.0-8-x86_64.spk","size":696639,"sha256":"4aafc9fecf4828e4ca912f383aa6ea135c0fe0995a3dc4e41f2811e93a5988e3","depends":[],"provides":["spui-theme"],"conflicts":[],"replaces":[],"summary":"XP Luna SPUI theme"}

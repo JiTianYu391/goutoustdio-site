@@ -1,0 +1,1 @@
+{"name":"spui-askpass","epoch":0,"version":"1.0.0","release":1,"arch":"x86_64","abi":"spaceos-1","filename":"spui-askpass-1.0.0-1-x86_64.spk","size":1335052,"sha256":"836972b51297b5ff9440ed37ea6ebc344b61b302ac2375661fb9a0e5d4b3321e","depends":["sudo>=0.1.0-5"],"provides":["spui-askpass","sudo-askpass"],"conflicts":[],"replaces":[],"summary":"SpaceOS 图形管理员授权弹窗（spui-askpass）"}

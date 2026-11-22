@@ -1,0 +1,1 @@
+{"name":"base","epoch":0,"version":"1.0.0","release":7,"arch":"x86_64","abi":"spaceos-1","filename":"base-1.0.0-7-x86_64.spk","size":1068,"sha256":"a98343f83648aeabae62a2434f0ea6e8b752b01343810081023ae945bcd05ab6","depends":["base-core"],"provides":["base"],"conflicts":[],"replaces":[],"summary":"SpaceOS-9 base meta package"}

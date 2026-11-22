@@ -1,0 +1,1 @@
+{"name":"font-hack","epoch":0,"version":"1.0.0","release":1,"arch":"x86_64","abi":"spaceos-1","filename":"font-hack-1.0.0-1-x86_64.spk","size":394234,"sha256":"9ba06a1d7f4d6b6e05a6d635fca3656c89155f2966d27d9fe79dd6e69a9df879","depends":[],"provides":["font"],"conflicts":[],"replaces":[],"summary":"Hack 编程字体"}

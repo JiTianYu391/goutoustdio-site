@@ -1,0 +1,413 @@
+{
+  "schema": 1,
+  "packages": {
+    "base": {
+      "display_name": "SpaceOS 基础系统元包",
+      "subtitle": "SpaceOS-9 最小可用系统依赖锚点",
+      "description": "Depends on base-core; desktop images satisfy base-core with spk-runtime instead of installing the P5 minimal userland.",
+      "category": "system",
+      "highlights": [
+        "依赖并保护 base-core 运行时完整性"
+      ],
+      "icon": "settings",
+      "accent": [
+        "#0ea5e9",
+        "#0369a1"
+      ],
+      "featured_rank": 60
+    },
+    "base-core": {
+      "display_name": "SpaceOS 核心运行时",
+      "subtitle": "BusyBox · musl 动态库 · systemg PID-1 · CA 证书",
+      "description": "spk, spk-sandbox, BusyBox, musl runtime, systemg and CA certificates.",
+      "category": "system",
+      "highlights": [
+        "完整基线系统共享库与证书信任链",
+        "集成 SPUI 主题热重载触发器钩子"
+      ],
+      "icon": "monitor",
+      "accent": [
+        "#475569",
+        "#1e293b"
+      ],
+      "featured_rank": 70
+    },
+    "font-carlito": {
+      "display_name": "Carlito 界面字体",
+      "subtitle": "与常见办公文档排版兼容的人文无衬线字体",
+      "description": "与常见办公文档排版兼容的人文无衬线字体。安装后可在系统设置的「字体」页中选择使用。",
+      "category": "utilities",
+      "highlights": [
+        "在系统设置 → 字体中一键切换",
+        "缺字时自动回退到内置中文字体"
+      ],
+      "icon": "editor",
+      "accent": [
+        "#f59e0b",
+        "#b45309"
+      ],
+      "screenshots": [
+        "previews/font-carlito.jpg",
+        "previews/font-carlito-2.jpg"
+      ],
+      "featured_rank": 33
+    },
+    "font-croscore": {
+      "display_name": "Croscore 字体集",
+      "subtitle": "Tinos 衬线 · Cousine 等宽 · Arimo 无衬线",
+      "description": "包含 Tinos 衬线、Cousine 等宽与 Arimo 无衬线三套字体，安装后可在系统设置的「字体」页中选择使用。",
+      "category": "utilities",
+      "highlights": [
+        "三套字体分别对应衬线、等宽与无衬线场景",
+        "在系统设置 → 字体中一键切换",
+        "缺字时自动回退到内置中文字体"
+      ],
+      "icon": "files",
+      "accent": [
+        "#a78bfa",
+        "#6d28d9"
+      ],
+      "screenshots": [
+        "previews/font-croscore.jpg",
+        "previews/font-croscore-2.jpg"
+      ],
+      "featured_rank": 32
+    },
+    "font-hack": {
+      "display_name": "Hack 编程字体",
+      "subtitle": "等宽编程字体，带连字友好的字形与清晰的小字号",
+      "description": "等宽编程字体，带连字友好的字形与清晰的小字号。安装后可在系统设置的「字体」页中选择使用。",
+      "category": "utilities",
+      "highlights": [
+        "在系统设置 → 字体中一键切换",
+        "缺字时自动回退到内置中文字体"
+      ],
+      "icon": "terminal",
+      "accent": [
+        "#22d3ee",
+        "#0891b2"
+      ],
+      "screenshots": [
+        "previews/font-hack.jpg",
+        "previews/font-hack-2.jpg"
+      ],
+      "featured_rank": 34
+    },
+    "hello": {
+      "display_name": "Hello 示例应用",
+      "subtitle": "SpaceOS 可复现软件包与在线升级验证工具",
+      "description": "Second hello version used by the spk upgrade, downgrade and crash-recovery tests.",
+      "category": "utilities",
+      "highlights": [
+        "轻量验证端到端安装、升级与回滚流程",
+        "零外部复杂依赖，可秒级完成下载测试"
+      ],
+      "icon": "terminal",
+      "accent": [
+        "#8b5cf6",
+        "#6d28d9"
+      ],
+      "featured_rank": 50
+    },
+    "space-editor": {
+      "display_name": "SpaceEditor 文档",
+      "subtitle": "A4 分页字处理 · 原生 .docx 读写 · 表格与插图",
+      "description": "基于 SPUI 4.0 构建的原生所见即所得文字处理软件。支持 A4/Letter 分页排版、标题大纲、丰富字体与配色、原生表格与图片嵌入，并支持与主流办公套件互通的 .docx（OOXML）以及 Markdown、HTML 与纯文本格式。",
+      "category": "utilities",
+      "highlights": [
+        "所见即所得 A4/Letter 分页视图，支持标准/窄/宽页边距、页眉页脚与页码",
+        "内置功能区（开始/插入/布局/视图）、标尺、文档大纲与 Ctrl+F/H 查找替换",
+        "纯静态 Rust OOXML 引擎，双向读写 .docx 以及 Markdown / HTML / TXT"
+      ],
+      "icon": "document",
+      "accent": [
+        "#1e40af",
+        "#2563eb"
+      ],
+      "banner": "previews/space-editor.jpg",
+      "screenshots": [
+        "previews/space-editor.jpg",
+        "previews/space-editor-2.jpg"
+      ],
+      "featured_rank": 98
+    },
+    "space-store": {
+      "display_name": "Space 商店",
+      "subtitle": "浏览、安装与更新 SpaceOS 软件包",
+      "description": "基于 spk 的图形软件中心。浏览、搜索、安装、更新与卸载软件包，管理软件源与信任密钥，所有变更都以 spk 事务执行，并可用应用内的管理员授权完成提权。",
+      "category": "utilities",
+      "highlights": [
+        "原生 SPUI 界面，跟随系统主题实时切换",
+        "所有变更经由 spk 事务、签名校验与回滚日志",
+        "支持更新中心、版本锁定与软件源维护"
+      ],
+      "icon": "store",
+      "accent": [
+        "#6366f1",
+        "#4338ca"
+      ],
+      "banner": "previews/space-store.jpg",
+      "screenshots": [
+        "previews/space-store.jpg",
+        "previews/space-store-2.jpg"
+      ],
+      "featured_rank": 85
+    },
+    "spime": {
+      "display_name": "SPIME 中文输入法",
+      "subtitle": "拼音 / 双拼 · 候选窗 · 随会话自动启动",
+      "description": "SpaceOS 原生中文输入法：拼音与双拼方案、候选窗、XIM 与 spime socket 双协议，随会话自动启动。",
+      "category": "system",
+      "highlights": [
+        "安装后重新登录即可在任意应用中输入中文",
+        "支持全拼与多种双拼方案、横竖候选栏",
+        "同时提供 XIM 与原生 socket 协议"
+      ],
+      "icon": "input",
+      "accent": [
+        "#0ea5e9",
+        "#0369a1"
+      ],
+      "featured_rank": 76
+    },
+    "spk-runtime": {
+      "display_name": "SPK 包管理运行时",
+      "subtitle": "原子事务引擎 · Ed25519 签名校验 · SPK 沙箱",
+      "description": "The static spk and spk-sandbox binaries used by desktop images that already provide musl, BusyBox and systemg from Alpine.",
+      "category": "system",
+      "highlights": [
+        "支持事务回滚日志、文件冲突检查与断电恢复",
+        "Ed25519 签名索引校验与内容寻址缓存去重",
+        "支持 --progress-json 实时流式进度接口"
+      ],
+      "icon": "store",
+      "accent": [
+        "#6366f1",
+        "#4338ca"
+      ],
+      "featured_rank": 80
+    },
+    "spui-askpass": {
+      "display_name": "Space 图形授权助手",
+      "subtitle": "sudo -A 图形密码验证 · 账号与命令安全预览",
+      "description": "面向 sudo -A 与桌面管理工具的独立图形认证助手，提供账号识别、权限命令预览与安全密码输入。",
+      "category": "system",
+      "highlights": [
+        "面向 sudo -A 的系统级非特权图形密码验证弹窗",
+        "支持密码显示切换、错误重试提示与退出后内存清零",
+        "独立软件包分发，可被 Space 商店及所有桌面管理工具复用"
+      ],
+      "icon": "shield",
+      "accent": [
+        "#2563eb",
+        "#1e3a8a"
+      ],
+      "featured_rank": 78
+    },
+    "sudo": {
+      "display_name": "sudo / doas 权限管理工具",
+      "subtitle": "管理员授权 · 时间戳票据缓存 · Askpass 图形验证",
+      "description": "Setuid sudo/doas with shadow authentication, tickets, sudoers/doas.conf, askpass, lecture and audit.",
+      "category": "system",
+      "highlights": [
+        "支持 -A 系统级图形授权弹窗与 -S 标准输入授权",
+        "保留独立 suid 位并受 spk 白名单安全保护"
+      ],
+      "icon": "shield",
+      "accent": [
+        "#10b981",
+        "#047857"
+      ],
+      "featured_rank": 75
+    },
+    "theme-ambiance": {
+      "display_name": "Ambiance 暖炭主题",
+      "subtitle": "暖炭黑顶栏 · 琥珀橙闭窗键 · 象牙白窗体",
+      "description": "Declarative Ambiance SPUI theme with warm charcoal top bar and titlebars, amber-orange close button, ivory surface, Radiance/MATE/Darkness variants and wave wallpaper.",
+      "category": "themes",
+      "highlights": [
+        "包含 Ambiance、Radiance、MATE 与 Darkness 四重变体",
+        "抗锯齿矢量 SVG 控制按钮，高分屏清晰锐利",
+        "暖梅紫梯度呼吸圆点声明式关机画面"
+      ],
+      "icon": "appearance",
+      "accent": [
+        "#f97316",
+        "#c2410c"
+      ],
+      "banner": "previews/theme-ambiance.jpg",
+      "screenshots": [
+        "previews/theme-ambiance.jpg",
+        "previews/theme-ambiance-2.jpg"
+      ],
+      "featured_rank": 90
+    },
+    "theme-aqua": {
+      "display_name": "Aqua Classic 晶球主题",
+      "subtitle": "拉丝银白顶栏 · 晶球窗口控制 · 水蓝极光波纹",
+      "description": "Declarative Aqua Classic SPUI theme with brushed silver centered titlebars, left crystal orbs, top menu bar, gel controls and blue wave wallpaper.",
+      "category": "themes",
+      "highlights": [
+        "顶部经典菜单栏架构与左侧晶球控制按钮",
+        "支持 Graphite 石墨配色与深色模式无缝切换",
+        "内置高清波纹壁纸与 12 帧旋转辐条关机动画"
+      ],
+      "icon": "wallpaper",
+      "accent": [
+        "#38bdf8",
+        "#0284c7"
+      ],
+      "banner": "previews/theme-aqua.jpg",
+      "screenshots": [
+        "previews/theme-aqua.jpg",
+        "previews/theme-aqua-2.jpg"
+      ],
+      "featured_rank": 95
+    },
+    "theme-winxp": {
+      "display_name": "XP Luna 经典主题",
+      "subtitle": "蓝银经典质感 · 双栏开始菜单 · Bliss 草原壁纸",
+      "description": "Declarative XP Luna SPUI theme with glossy blue chrome, silver controls, two-column start menu and Bliss landscape wallpaper.",
+      "category": "themes",
+      "highlights": [
+        "支持深色 Royale Noir 与橄榄绿/金属银变体",
+        "自带 1080p Bliss 草原风景壁纸与 SVG 按钮精灵",
+        "提供声明式 [power_splash] 关机与重启画面"
+      ],
+      "icon": "appearance",
+      "accent": [
+        "#3b82f6",
+        "#1d4ed8"
+      ],
+      "banner": "previews/theme-winxp.jpg",
+      "screenshots": [
+        "previews/theme-winxp.jpg",
+        "previews/theme-winxp-2.jpg"
+      ],
+      "featured_rank": 100
+    }
+  },
+  "hero": [
+    {
+      "overline": "精选推荐 · 声明式桌面主题",
+      "title": "XP Luna 经典主题",
+      "subtitle": "支持经典与深色多变体切换、抗锯齿标题栏与主题专属关机动画，安装后即刻热生效。",
+      "cta": "获取主题",
+      "package": "theme-winxp",
+      "accent": [
+        "#1e3a8a",
+        "#2563eb"
+      ],
+      "icon": "appearance",
+      "banner": "previews/theme-winxp.jpg"
+    },
+    {
+      "overline": "编辑精选 · 暖色创作环境",
+      "title": "Ambiance 暖炭主题",
+      "subtitle": "暖炭黑面板配合象牙白高对比窗口与四重变体配色，适合长时间开发与文字工作。",
+      "cta": "立即体验",
+      "package": "theme-ambiance",
+      "accent": [
+        "#4c1d3d",
+        "#c2410c"
+      ],
+      "icon": "wallpaper",
+      "banner": "previews/theme-ambiance.jpg"
+    },
+    {
+      "overline": "精致视觉 · 水蓝晶球体验",
+      "title": "Aqua Classic 晶球主题",
+      "subtitle": "拉丝银白顶栏配合晶球窗口控制按钮与极光水蓝波纹壁纸，支持浅色与深色模式无缝切换。",
+      "cta": "立即获取",
+      "package": "theme-aqua",
+      "accent": [
+        "#0c4a6e",
+        "#0284c7"
+      ],
+      "icon": "wallpaper",
+      "banner": "previews/theme-aqua.jpg"
+    },
+    {
+      "overline": "精选办公 · 所见即所得排版",
+      "title": "SpaceEditor A4 文档引擎",
+      "subtitle": "支持 A4/Letter 分页布局、文档大纲、混合字体、原生表格与图片嵌入，以及标准 .docx 双向读写。",
+      "cta": "立即获取",
+      "package": "space-editor",
+      "accent": [
+        "#1e40af",
+        "#2563eb"
+      ],
+      "icon": "document",
+      "banner": "previews/space-editor.jpg"
+    },
+    {
+      "overline": "SpaceOS-9 软件中心",
+      "title": "安全、可复现的原子软件包管理",
+      "subtitle": "基于 Ed25519 签名验证与事务回滚日志，轻松管理桌面主题与系统组件。",
+      "cta": "同步软件源",
+      "accent": [
+        "#1e293b",
+        "#2563eb"
+      ],
+      "icon": "store",
+      "banner": "previews/space-store.jpg"
+    }
+  ],
+  "sections": [
+    {
+      "title": "办公与效率",
+      "subtitle": "文档排版与系统软件工具",
+      "packages": [
+        "space-editor",
+        "space-store"
+      ]
+    },
+    {
+      "title": "精选主题",
+      "subtitle": "让桌面换一种气质",
+      "packages": [
+        "theme-winxp",
+        "theme-aqua",
+        "theme-ambiance"
+      ]
+    },
+    {
+      "title": "系统核心",
+      "subtitle": "SpaceOS 的基石组件",
+      "packages": [
+        "base-core",
+        "spime",
+        "spk-runtime",
+        "sudo",
+        "spui-askpass",
+        "base"
+      ]
+    },
+    {
+      "title": "字体",
+      "subtitle": "为界面、文档与代码换个字面",
+      "packages": [
+        "font-hack",
+        "font-croscore",
+        "font-carlito"
+      ]
+    }
+  ],
+  "categories": [
+    {
+      "slug": "themes",
+      "label": "桌面主题",
+      "subtitle": "窗口、图标与关机动画"
+    },
+    {
+      "slug": "system",
+      "label": "系统核心",
+      "subtitle": "运行时、权限与包管理"
+    },
+    {
+      "slug": "utilities",
+      "label": "实用工具",
+      "subtitle": "命令行与验证工具"
+    }
+  ]
+}

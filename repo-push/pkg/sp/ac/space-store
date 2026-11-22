@@ -1,0 +1,1 @@
+{"name":"space-store","epoch":0,"version":"1.0.0","release":6,"arch":"x86_64","abi":"spaceos-1","filename":"space-store-1.0.0-6-x86_64.spk","size":1656919,"sha256":"a843b14e658b643e2b541035b3a40c0125f9b3566d525f7003ab39799ab48aff","depends":["spk-runtime","spui-askpass"],"provides":["space-store"],"conflicts":[],"replaces":[],"summary":"Space 商店：图形软件包管理器"}
