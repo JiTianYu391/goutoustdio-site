@@ -101,7 +101,22 @@ app.use("/spaceos/repo", express.static(repoDir, {
   etag: true,
   lastModified: true,
   setHeaders(res, filePath) {
-    if (filePath.endsWith("index.json") || filePath.endsWith(".sig")) {
+    const name = path.basename(filePath);
+    const relative = path.relative(repoDir, filePath).split(path.sep).join("/");
+    // Only .spk files are truly immutable: the version is part of the file
+    // name and a published package is never rewritten. Everything else in the
+    // repository is regenerated in place on every publish, so caching it --
+    // especially as `immutable` -- leaves clients on a manifest that no longer
+    // matches the index they just fetched.
+    const rewritten =
+      name === "index.json" ||
+      name === "repo.json" ||
+      name === "store.json" ||
+      name === "store.in.json" ||
+      name.endsWith(".sig") ||
+      relative.startsWith("pkg/") ||
+      relative.startsWith("previews/");
+    if (rewritten) {
       res.set("Cache-Control", "no-cache");
     } else {
       res.set("Cache-Control", "public, max-age=31536000, immutable");
