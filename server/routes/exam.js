@@ -9,13 +9,14 @@ import {
   str, USER_RE, MAIL_RE, EXAM_NO_RE, need, needAdmin, getUser, syncAdmin,
 } from "../util.js";
 import { parseExamDocument } from "../exam-parser.js";
+import { getDeepSeekConfig, saveDeepSeekConfig, parseExamPhotosWithAI, gradeExamPapersWithAI } from "../exam-ai-parser.js";
 
 const r = Router();
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_STATUS = new Set(["draft", "published"]);
 const ALLOWED_FILTERS = new Set(["magic", "bw", "gray", "enhance", "original"]);
 const ALLOWED_ANN_TYPES = new Set(["check", "cross", "circle", "line", "text"]);
-const ALLOWED_QTYPES = new Set(["choice", "multi_choice", "judge", "blank", "essay", "other"]);
+const ALLOWED_QTYPES = new Set(["choice", "multi_choice", "judge", "blank", "listening", "essay", "other"]);
 
 const num = (v, def = 0) => {
   const n = Number(v);
@@ -263,13 +264,15 @@ function normalizeAndSaveScore({ examId, subject, userId, gradedBy, payload }) {
           };
           if (q.section) out.section = q.section;
           if (q.qtype) out.qtype = q.qtype;
+          if (hit?.studentAnswer) out.studentAnswer = str(hit.studentAnswer).trim().slice(0, 500);
+          if (hit?.aiComment) out.aiComment = str(hit.aiComment).trim().slice(0, 500);
           return out;
         });
       } else {
         items = rawItems.slice(0, 150).map((x, idx) => {
           const full = Math.max(0.5, Math.min(1000, num(x.full, 10)));
           const got = Math.max(0, Math.min(full, num(x.got, 0)));
-          return {
+          const out = {
             no: str(x.no || String(idx + 1)).trim().slice(0, 16) || String(idx + 1),
             title: str(x.title).trim().slice(0, 240),
             tag: str(x.tag).trim().slice(0, 32) || "综合能力",
@@ -278,6 +281,11 @@ function normalizeAndSaveScore({ examId, subject, userId, gradedBy, payload }) {
             wrong: !!(x.wrong) || got < full - 1e-6,
             answer: str(x.answer).trim().slice(0, 1500),
           };
+          if (x.section) out.section = str(x.section).trim().slice(0, 24);
+          if (ALLOWED_QTYPES.has(str(x.qtype).trim())) out.qtype = str(x.qtype).trim();
+          if (x.studentAnswer) out.studentAnswer = str(x.studentAnswer).trim().slice(0, 500);
+          if (x.aiComment) out.aiComment = str(x.aiComment).trim().slice(0, 500);
+          return out;
         });
       }
       const sumItems = round1(items.reduce((s, it) => s + it.got, 0));
@@ -625,6 +633,8 @@ r.get("/exams/:examId/report", (req, res) => {
           tag: tName,
           ...(it.section ? { section: it.section } : {}),
           ...(it.qtype ? { qtype: it.qtype } : {}),
+          ...(it.studentAnswer ? { studentAnswer: it.studentAnswer } : {}),
+          ...(it.aiComment ? { aiComment: it.aiComment } : {}),
           full: it.full,
           got: it.got,
           wrong: !!it.wrong || it.got < it.full - 1e-6,
@@ -1016,6 +1026,145 @@ r.post("/admin/parse-doc", async (req, res) => {
     const status = Number(e?.status) >= 400 && Number(e?.status) < 500 ? Number(e.status) : 400;
     res.status(status).json({ error: e?.message || "试卷文档解析失败" });
   }
+});
+
+// ---- AI 拍照识卷配置与 DeepSeek 多模态识图（管理员） ----
+r.get("/admin/ai-config", (_req, res) => {
+  res.json({ config: getDeepSeekConfig() });
+});
+
+r.put("/admin/ai-config", (req, res) => {
+  try {
+    const cfg = saveDeepSeekConfig({
+      apiKey: req.body?.apiKey !== undefined ? str(req.body.apiKey) : undefined,
+      baseUrl: req.body?.baseUrl !== undefined ? str(req.body.baseUrl) : undefined,
+      model: req.body?.model !== undefined ? str(req.body.model) : undefined,
+    });
+    res.json({ config: cfg });
+  } catch (e) {
+    const status = Number(e?.status) >= 400 && Number(e?.status) < 500 ? Number(e.status) : 400;
+    res.status(status).json({ error: e?.message || "保存 AI 配置失败" });
+  }
+});
+
+r.post("/admin/parse-photos", async (req, res) => {
+  try {
+    const parsed = await parseExamPhotosWithAI({
+      images: req.body?.images,
+      apiKey: str(req.body?.apiKey),
+      baseUrl: str(req.body?.baseUrl),
+      model: str(req.body?.model),
+    });
+    res.json({ parsed });
+  } catch (e) {
+    const status = Number(e?.status) >= 400 && Number(e?.status) < 600 ? Number(e.status) : 400;
+    res.status(status).json({ error: e?.message || "拍照识卷失败" });
+  }
+});
+
+// ---- AI 自动批改考生答题卡扫描件（读取已上传原卷 -> 识别作答 -> 判分与生成红笔批注 -> 落库成绩与错题本） ----
+r.post("/admin/ai-grade", async (req, res) => {
+  const examId = Number(req.body?.examId);
+  const subjectId = Number(req.body?.subjectId);
+  const ex = db.prepare("SELECT * FROM exams WHERE id=?").get(examId);
+  if (!ex) return res.status(404).json({ error: "考试不存在" });
+  const sub = db.prepare("SELECT * FROM exam_subjects WHERE id=? AND exam_id=?").get(subjectId, examId);
+  if (!sub) return res.status(404).json({ error: "科目不存在" });
+
+  const target = resolveUser(req.body?.userId, req.body?.examNo);
+  if (!target) return res.status(404).json({ error: "未找到目标考生，请核对 4 位考号" });
+
+  const paperRows = db.prepare(
+    "SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=? ORDER BY page_no ASC, id ASC",
+  ).all(examId, subjectId, target.id);
+  if (!paperRows.length) {
+    return res.status(400).json({ error: "该考生在本科目下尚未上传答题卡/试卷扫描件，请先拍照或上传原卷" });
+  }
+
+  const rootDir = path.resolve(EXAM_UPLOAD_DIR);
+  const pages = [];
+  for (let i = 0; i < Math.min(paperRows.length, 16); i++) {
+    const row = paperRows[i];
+    const resolved = path.resolve(rootDir, row.file_name);
+    if (!resolved.startsWith(rootDir + path.sep) || !fs.existsSync(resolved)) continue;
+    const buf = fs.readFileSync(resolved);
+    const mime = /^image\/(?:png|webp)$/.test(row.mime_type) ? row.mime_type : "image/jpeg";
+    pages.push({
+      id: row.id,
+      pageNo: i + 1,
+      actualPageNo: row.page_no,
+      dataUrl: `data:${mime};base64,${buf.toString("base64")}`,
+    });
+  }
+  if (!pages.length) {
+    return res.status(404).json({ error: "扫描原卷图片文件不存在或已丢失" });
+  }
+
+  let grading;
+  try {
+    grading = await gradeExamPapersWithAI({
+      pages,
+      subject: subjectDto(sub),
+      apiKey: str(req.body?.apiKey),
+      baseUrl: str(req.body?.baseUrl),
+      model: str(req.body?.model),
+    });
+  } catch (e) {
+    const status = Number(e?.status) >= 400 && Number(e?.status) < 600 ? Number(e.status) : 400;
+    return res.status(status).json({ error: e?.message || "AI 自动批改失败" });
+  }
+
+  const applyAnnotations = req.body?.applyAnnotations !== false;
+  const autoSave = req.body?.autoSave !== false;
+  let pagesUpdated = 0;
+  let savedScore = null;
+
+  db.exec("BEGIN");
+  try {
+    if (applyAnnotations) {
+      const updPage = db.prepare("UPDATE exam_paper_pages SET annotations_json=? WHERE id=?");
+      for (const p of pages) {
+        const rawAnns = grading.annotationsByPageNo.get(p.pageNo) || [];
+        const cleanAnns = normalizeAnnotations(rawAnns);
+        updPage.run(JSON.stringify(cleanAnns), p.id);
+        pagesUpdated++;
+      }
+    }
+    if (autoSave) {
+      savedScore = normalizeAndSaveScore({
+        examId,
+        subject: sub,
+        userId: target.id,
+        gradedBy: req.user.id,
+        payload: {
+          score: grading.score,
+          absent: false,
+          items: grading.items,
+          useItemsSum: grading.items.length > 0,
+          teacherComment: grading.teacherComment,
+        },
+      });
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    return res.status(400).json({ error: e.message || "保存 AI 批改结果失败" });
+  }
+
+  res.json({
+    ok: true,
+    grading: {
+      score: grading.score,
+      fullScore: grading.fullScore,
+      teacherComment: grading.teacherComment,
+      items: grading.items,
+      wrongCount: grading.wrongCount,
+      model: grading.model,
+      pagesUpdated,
+      autoSaved: autoSave,
+      saved: savedScore,
+    },
+  });
 });
 
 // ---- 考试管理 ----

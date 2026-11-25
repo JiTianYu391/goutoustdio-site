@@ -41,9 +41,9 @@ app.use("/api", (_req, res, next) => { res.set("Cache-Control", "no-store"); res
 app.use(cookieParser());
 const jsonSmall = express.json({ limit: "64kb" });
 const jsonMedium = express.json({ limit: "512kb" });
-const jsonUpload = express.json({ limit: "20mb" });
+const jsonUpload = express.json({ limit: "35mb" });
 app.use("/api", (req, res, next) => {
-  if ((req.path === "/exam/admin/papers" || req.path === "/exam/admin/parse-doc") && req.method === "POST") {
+  if ((req.path === "/exam/admin/papers" || req.path === "/exam/admin/parse-doc" || req.path === "/exam/admin/parse-photos") && req.method === "POST") {
     return jsonUpload(req, res, next);
   }
   if (/^\/exam\/admin\/(?:exams(?:\/\d+)?|scores(?:\/batch)?)$/.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {

@@ -274,12 +274,13 @@ function collapseJustifiedCjkSpaces(text) {
 
 export function classifySectionType(rawName) {
   const name = String(rawName || "").trim();
+  if (/听力|听说/.test(name)) return { qtype: "listening", label: name || "听力题" };
   if (/多[项选]|不定项/.test(name)) return { qtype: "multi_choice", label: name || "多选题" };
   if (/单[项选]|选择/.test(name)) return { qtype: "choice", label: name || "选择题" };
   if (/判断|是非|辨析/.test(name)) return { qtype: "judge", label: name || "判断题" };
   if (/填空|补全/.test(name)) return { qtype: "blank", label: name || "填空题" };
-  if (/大题|简答|问答|计算|解答|应用|实验|编程|代码|设计|综合|论述|材料|案例|分析|阅读|写作|作文|证明|探究/.test(name)) {
-    return { qtype: "essay", label: name || "大题" };
+  if (/主观|大题|简答|问答|计算|解答|应用|实验|编程|代码|设计|综合|论述|材料|案例|分析|阅读|写作|作文|证明|探究/.test(name)) {
+    return { qtype: "essay", label: name || "主观题" };
   }
   return { qtype: "other", label: name || "综合题" };
 }
@@ -412,6 +413,21 @@ function cleanChoiceQuestion(rawLines) {
   const stemNoFig = stemRaw.replace(/\s{2,}图\s*\d+\s+.*$/gm, "");
   const title = collapseJustifiedCjkSpaces(stemNoFig.replace(/\n+/g, " ")).slice(0, 240);
   return { title, subQuestions: [] };
+}
+
+function cleanListeningQuestion(rawLines) {
+  const filtered = stripFigureLines(rawLines);
+  const joined = filtered.join("\n");
+  if (/(?:^|\n|\s{2,})A\s*[.．、]\s*/.test(joined)) {
+    return cleanChoiceQuestion(rawLines);
+  }
+  if (/_{2,}|[ \t]{3,}/.test(joined)) {
+    return cleanBlankQuestion(rawLines);
+  }
+  return {
+    title: collapseJustifiedCjkSpaces(filtered.join(" ")).slice(0, 240),
+    subQuestions: [],
+  };
 }
 
 function cleanBlankQuestion(rawLines) {
@@ -605,6 +621,13 @@ function parseAnswersZone(answerLines, questions) {
       if (hit === 0) {
         parseNumberedAnswersByKnown(text, answerMap, knownNos, byType.get(blk.qtype));
       }
+    } else if (blk.qtype === "listening") {
+      const listenSet = byType.get("listening") || knownNos;
+      parseInlineChoiceAnswers(text, answerMap, listenSet);
+      const remaining = new Set([...listenSet].filter((k) => !answerMap.has(k)));
+      if (remaining.size) {
+        parseNumberedAnswersByKnown(text.replace(/\n+/g, " "), answerMap, knownNos, remaining);
+      }
     } else if (blk.qtype === "essay") {
       const essayNos = byType.get("essay") || knownNos;
       const essayMarkers = [];
@@ -660,7 +683,7 @@ function parseSpecTable(specLines) {
 
   if (!specLines.length) return { questionTags, subQuestionTags, chapters: [] };
 
-  const REF_HINT_RE = /(?:选择题|单选题|多选题|判断题|填空题|大题|简答题|计算题|解答题|综合题|编程题|论述题|实验题|材料题|应用题)/;
+  const REF_HINT_RE = /(?:听力(?:理解|选择|填空|判断|测试)?题?|选择题|单选题|多选题|判断题|填空题|主观题|大题|简答题|计算题|解答题|综合题|编程题|论述题|实验题|材料题|应用题)/;
   const HEADER_NOISE_RE = /^(?:章节|模块|知识点|单元|题号|题型|分值|占比|难度|合计|总计|\d+(?:\.\d+)?%?)$/;
 
   const addTag = (qNo, chapter) => {
@@ -912,6 +935,8 @@ export function parseExamText(pagesOrText, filename = "") {
       let parsedBody;
       if (sec.qtype === "choice" || sec.qtype === "multi_choice") {
         parsedBody = cleanChoiceQuestion(rq.lines);
+      } else if (sec.qtype === "listening") {
+        parsedBody = cleanListeningQuestion(rq.lines);
       } else if (sec.qtype === "blank") {
         parsedBody = cleanBlankQuestion(rq.lines);
       } else if (sec.qtype === "essay" || sec.qtype === "other") {

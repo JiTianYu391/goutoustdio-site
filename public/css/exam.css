@@ -173,7 +173,47 @@
 .item-pill-loss { color: var(--pg-bad-fg); font-weight: 700; }
 .item-pill-full { color: var(--pg-ok-fg); font-weight: 600; }
 
-/* ---------- 电子试卷查看器 ---------- */
+/* ---------- 智学网式答题卡原卷与小题批改对照 ---------- */
+.paper-zxw-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr);
+  gap: 1.15rem;
+  align-items: start;
+}
+.paper-grade-side {
+  padding: 1rem 1.05rem;
+  border-radius: var(--pg-radius-lg);
+  background: var(--pg-bg-card);
+  border: var(--pg-hairline) solid var(--pg-line-glass);
+  display: grid;
+  gap: .7rem;
+}
+.paper-grade-list {
+  display: grid;
+  gap: .5rem;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: .25rem;
+}
+.paper-grade-item {
+  padding: .6rem .75rem;
+  border-radius: var(--pg-radius);
+  background: var(--pg-bg-sunken);
+  border: 1px solid var(--ui-border);
+  border-left: 3px solid var(--ui-border);
+  display: grid;
+  gap: .28rem;
+  font-size: var(--pg-text-xs);
+}
+.paper-grade-item.is-wrong { border-left-color: var(--pg-bad-fg); }
+.paper-grade-item.is-ok { border-left-color: var(--pg-ok-fg); }
+.paper-grade-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
 .paper-viewer-shell { display: grid; gap: 1rem; }
 .paper-thumbs {
   display: flex; gap: .6rem; overflow-x: auto; padding-bottom: .35rem;
@@ -279,6 +319,21 @@
   font-size: var(--pg-text-sm);
 }
 .doc-import-title .icon { color: var(--pg-accent); width: 1.1rem; height: 1.1rem; flex: none; }
+.doc-ai-config {
+  padding: .75rem .85rem;
+  border-radius: var(--pg-radius);
+  border: 1px solid var(--ui-border);
+  background: var(--pg-bg-card);
+  display: grid;
+  gap: .55rem;
+}
+.doc-ai-config[hidden] { display: none; }
+.doc-ai-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1.1fr .9fr auto;
+  gap: .5rem;
+  align-items: end;
+}
 .doc-import-result {
   padding: .75rem .85rem;
   border-radius: var(--pg-radius);
@@ -385,9 +440,11 @@
   .exam-hero-grid { grid-template-columns: 1fr; }
   .exam-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .exam-charts-grid { grid-template-columns: 1fr; }
+  .paper-zxw-grid { grid-template-columns: 1fr; }
   .score-entry-grid { grid-template-columns: 1fr; }
   .sub-editor-fields { grid-template-columns: 1fr 1fr; }
   .q-editor-row { grid-template-columns: 3.6rem 1fr 1fr; }
+  .doc-ai-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 40rem) {
   .exam-kpi-grid { grid-template-columns: 1fr 1fr; gap: .7rem; }

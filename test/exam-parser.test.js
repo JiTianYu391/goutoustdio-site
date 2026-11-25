@@ -421,6 +421,56 @@ test("安全性与异常文件校验：越权 403、伪造魔数 400、旧版 .d
   assert.match(noTextRes.json.error, /文字层/);
 });
 
+test("题型扩展：支持听力题与主观题（大题）识别、答案回填、细目表映射与落库保存", async () => {
+  const sampleText = [
+    "2026年内部英语与架构综合检测",
+    "（满分 100 分，考试时间 60 分钟）",
+    "一、听力理解（本大题共 2 小题，每小题 10 分，共 20 分。）",
+    "1. Where is the deployment meeting held?",
+    "A. Room 101 B. Room 202 C. Online",
+    "2. The release starts at ____.",
+    "二、主观题（本大题共 1 小题，共 80 分。）",
+    "3. 请阐述系统架构设计思路：",
+    "(1) 说明模块拆分依据。（40 分）",
+    "(2) 说明容灾与回滚方案。（40 分）",
+    "参考答案",
+    "一、听力理解",
+    "1.B 2. 14:30",
+    "二、主观题",
+    "3.（80 分）（1）按领域边界拆分（40 分）。（2）保留双版本镜像与健康检查（40 分）。",
+    "双向细目表",
+    "语音理解 听力理解 1–2 20",
+    "系统设计 主观题 3(1)(2) 80",
+  ].join("\n");
+
+  const parsedRes = await api("POST", "/api/exam/admin/parse-doc", {
+    filename: "listening-subjective.txt",
+    text: sampleText,
+  }, adminCookie);
+  assert.equal(parsedRes.status, 200);
+  const p = parsedRes.json.parsed;
+  assert.equal(p.sections.length, 2);
+  assert.equal(p.sections[0].qtype, "listening");
+  assert.equal(p.sections[1].qtype, "essay");
+  assert.equal(p.questions[0].qtype, "listening");
+  assert.equal(p.questions[0].answer, "B");
+  assert.equal(p.questions[1].qtype, "listening");
+  assert.equal(p.questions[1].answer, "14:30");
+  assert.equal(p.questions[2].qtype, "essay");
+  assert.equal(p.questions[2].section, "主观题");
+  assert.equal(p.questions[0].tag, "语音理解");
+  assert.equal(p.questions[2].subQuestions.length, 2);
+  assert.equal(p.questions[2].subQuestions[0].tag, "系统设计");
+
+  const saveRes = await api("POST", "/api/exam/admin/exams", {
+    title: "听力与主观题存储测试",
+    subjects: [{ name: "综合", fullScore: 100, questions: p.questions }],
+  }, adminCookie);
+  assert.equal(saveRes.status, 201);
+  assert.equal(saveRes.json.exam.subjects[0].questions[0].qtype, "listening");
+  assert.equal(saveRes.json.exam.subjects[0].questions[2].qtype, "essay");
+});
+
 test("全站主导航收敛为单一配置文件 nav-config.js", () => {
   const pubDir = path.resolve(process.cwd(), "public");
   const mainPages = [

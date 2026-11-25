@@ -511,7 +511,11 @@
       } else if (a.type === "line") {
         g.appendChild(svgEl("line", { x1: x, y1: y, x2: (a.x2 || a.x) * 1000, y2: (a.y2 || a.y) * 1000 }));
       } else if (a.type === "text") {
-        var t = svgEl("text", { x: x, y: y, fill: col, stroke: "none", "font-size": "28", "font-weight": "700" });
+        var t = svgEl("text", {
+          x: x, y: y, fill: col,
+          stroke: "rgba(255,255,255,0.92)", "stroke-width": "6", "paint-order": "stroke",
+          "font-size": "28", "font-weight": "700",
+        });
         t.textContent = a.text;
         g.appendChild(t);
       }
@@ -621,6 +625,25 @@
       }
       applyTransform();
 
+      var onlyWrong = false;
+      var aiTriggerBtn = state.me.role === "admin" ? el("button", {
+        type: "button", class: "btn btn-sm btn-primary",
+        text: "🤖 AI 自动批改答题卡",
+        onclick: function () {
+          var done = GS.busy(aiTriggerBtn, "AI 批改中…");
+          GS.api("POST", "/api/exam/admin/ai-grade", {
+            examId: repCache.exam.id,
+            subjectId: sub.id,
+            userId: repCache.targetUser.id,
+            applyAnnotations: true,
+            autoSave: true,
+          }).then(function (r) {
+            GS.toast("AI 批改完成：" + r.grading.score + " / " + r.grading.fullScore + " 分");
+            loadExamPapers();
+          }).catch(function (err) { done(); fail(err); });
+        },
+      }) : null;
+
       var tools = el("div", { class: "exam-bar", style: "margin-bottom:.6rem" },
         el("div", { class: "exam-bar-left" },
           el("button", { type: "button", class: "btn btn-sm", text: "放大 +", onclick: function () { zoom = Math.min(3, Math.round((zoom + 0.25) * 100) / 100); applyTransform(); } }),
@@ -629,18 +652,19 @@
           el("button", { type: "button", class: "btn btn-sm", text: "旋转 90°", onclick: function () { rot = (rot + 90) % 360; applyTransform(); } }),
           el("button", {
             type: "button", class: "btn btn-sm " + (showAnn ? "is-on" : ""),
-            text: showAnn ? "隐藏红笔批改" : "显示红笔批改",
+            text: showAnn ? "隐藏批改痕迹" : "显示批改痕迹",
             onclick: function () { showAnn = !showAnn; drawViewer(); },
           }),
           el("a", { class: "btn btn-sm", href: page.url, download: (repCache.targetUser.examNo || "paper") + "-p" + page.pageNo + ".jpg", text: "下载原卷" }),
         ),
         state.me.role === "admin" ? el("div", { class: "exam-bar-right" },
+          aiTriggerBtn,
           el("button", {
             type: "button", class: "btn btn-sm", text: "在线红笔批改",
             onclick: function () { openAnnotationDialog(page, drawViewer); },
           }),
           el("button", {
-            type: "button", class: "btn btn-sm btn-primary", text: "📷 继续拍卷并改分",
+            type: "button", class: "btn btn-sm", text: "📷 继续拍卷",
             onclick: function () {
               ExamScanner.open({
                 isAdmin: true,
@@ -659,7 +683,60 @@
         ) : null,
       );
 
-      stageHost.append(el("div", { class: "paper-viewer-shell" }, thumbs, tools, el("div", { class: "paper-stage" }, wrap)));
+      // 智学网式右侧「小题得分 & AI/教师批改明细对照」
+      var items = (sub.mine && Array.isArray(sub.mine.items)) ? sub.mine.items : [];
+      var gradeListHost = el("div", { class: "paper-grade-list" });
+      var filterAllBtn = el("button", { type: "button", class: "btn btn-sm is-on", text: "全部 (" + items.length + ")" });
+      var wrongCount = items.filter(function (x) { return x.wrong; }).length;
+      var filterWrongBtn = el("button", { type: "button", class: "btn btn-sm", text: "仅看失分 (" + wrongCount + ")" });
+
+      function drawGradeItems() {
+        gradeListHost.textContent = "";
+        filterAllBtn.classList.toggle("is-on", !onlyWrong);
+        filterWrongBtn.classList.toggle("is-on", onlyWrong);
+        var shown = onlyWrong ? items.filter(function (x) { return x.wrong; }) : items;
+        if (!shown.length) {
+          gradeListHost.append(el("p", { class: "muted small", text: items.length ? "暂无失分题，继续保持！" : "暂未录入小题批改明细（等待教师/AI批改）" }));
+          return;
+        }
+        shown.forEach(function (it) {
+          gradeListHost.append(el("div", { class: "paper-grade-item " + (it.wrong ? "is-wrong" : "is-ok") },
+            el("div", { class: "paper-grade-head" },
+              el("div", { class: "row" },
+                el("strong", { text: "#" + it.no }),
+                it.section || it.qtype ? label(qtypeLabel(it.qtype, it.section)) : false,
+                label(it.tag || "综合"),
+              ),
+              el("span", {
+                class: it.wrong ? "item-pill-loss" : "item-pill-full",
+                text: it.wrong ? ("-" + Math.round((it.full - it.got) * 10) / 10 + "（" + it.got + "/" + it.full + "）") : ("✓ " + it.got + "/" + it.full),
+              }),
+            ),
+            it.title ? el("div", { class: "small muted", text: it.title }) : false,
+            it.studentAnswer ? el("div", { class: "small", text: "考生作答：" + it.studentAnswer }) : false,
+            it.answer ? el("div", { class: "small", style: "color:var(--pg-ok-fg)", text: "参考答案：" + it.answer }) : false,
+            it.aiComment ? el("div", { class: "small muted", text: "批改意见：" + it.aiComment }) : false,
+          ));
+        });
+      }
+      filterAllBtn.addEventListener("click", function () { onlyWrong = false; drawGradeItems(); });
+      filterWrongBtn.addEventListener("click", function () { onlyWrong = true; drawGradeItems(); });
+      drawGradeItems();
+
+      var gradeSide = el("aside", { class: "paper-grade-side" },
+        el("div", { class: "exam-card-head", style: "margin-bottom:0" },
+          el("h3", { text: "小题得分与批改明细" }),
+          sub.mine ? label(sub.mine.absent ? "缺考" : (sub.mine.score + " / " + sub.fullScore + " 分 · " + sub.mine.grade), sub.mine.absent ? "danger" : "accent") : label("未出分"),
+        ),
+        sub.mine && sub.mine.teacherComment ? el("div", { class: "teacher-comment", text: sub.mine.teacherComment }) : false,
+        items.length ? el("div", { class: "row" }, filterAllBtn, filterWrongBtn) : false,
+        gradeListHost,
+      );
+
+      stageHost.append(el("div", { class: "paper-zxw-grid" },
+        el("div", { class: "paper-viewer-shell" }, thumbs, tools, el("div", { class: "paper-stage" }, wrap)),
+        gradeSide,
+      ));
     }
 
     exSel.addEventListener("change", function () { state.paperFilterExamId = Number(exSel.value); loadExamPapers(); });
@@ -946,7 +1023,8 @@
     multi_choice: "多选题",
     judge: "判断题",
     blank: "填空题",
-    essay: "大题",
+    listening: "听力题",
+    essay: "主观题（大题）",
     other: "综合题",
   };
 
@@ -1054,34 +1132,216 @@
     var rankChk = el("input", { type: "checkbox", checked: !existing || existing.showRank });
     var subHost = el("div");
 
-    // 试卷文档自动识别区（PDF / Word .docx / TXT / MD）
+    // 试卷自动识别区（文档解析 PDF/DOCX/TXT/MD + DeepSeek Vision 拍照多图识卷）
     var parseState = {
       parsed: null,
       structMode: "single",
       splitSub: false,
       busy: false,
+      aiConfig: null,
     };
     var docInput = el("input", {
       type: "file",
       accept: ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown",
       hidden: true,
     });
+    var photoCamInput = el("input", {
+      type: "file",
+      accept: "image/*",
+      capture: "environment",
+      hidden: true,
+    });
+    var photoAlbumInput = el("input", {
+      type: "file",
+      accept: "image/jpeg,image/png,image/webp,image/*",
+      multiple: true,
+      hidden: true,
+    });
+
     var pickDocBtn = el("button", {
       type: "button",
       class: "btn btn-sm",
       onclick: function () { docInput.click(); },
-    }, icon("layers"), "选择试卷文档");
-    var docStatusEl = el("span", { class: "small muted", text: "支持文字版 PDF / Word (.docx) / TXT / Markdown（≤ 12MB），自动识别题型、分值、参考答案与双向细目表，并自动跳过答题卡" });
+    }, icon("layers"), "传文档 (PDF/Word)");
+    var takePhotoBtn = el("button", {
+      type: "button",
+      class: "btn btn-sm",
+      onclick: function () { photoCamInput.click(); },
+    }, icon("phone"), "拍照识卷");
+    var pickPhotosBtn = el("button", {
+      type: "button",
+      class: "btn btn-sm btn-primary",
+      onclick: function () { photoAlbumInput.click(); },
+    }, icon("plus"), "选试卷照片 (AI)");
+    var scanCropAiBtn = el("button", {
+      type: "button",
+      class: "btn btn-sm",
+      onclick: function () {
+        if (!window.ExamScanner) return GS.toast("扫描组件未加载");
+        ExamScanner.open({
+          isAdmin: true,
+          mode: "extract",
+          onExtract: function (pagesOut) {
+            submitPhotosToAI(pagesOut);
+          },
+        });
+      },
+    }, icon("search"), "切边扫描后识别");
+    var aiCfgToggleBtn = el("button", {
+      type: "button",
+      class: "btn btn-sm",
+      text: "🔑 DeepSeek API",
+      onclick: function () {
+        aiCfgPanel.hidden = !aiCfgPanel.hidden;
+      },
+    });
+
+    var aiStatusBadge = label("检测 AI 配置中…");
+    var aiKeyInp = el("input", { type: "password", placeholder: "输入 DeepSeek API Key (sk-...)" });
+    var aiBaseInp = el("input", { type: "url", value: "https://api.deepseek.com", placeholder: "https://api.deepseek.com" });
+    var aiModelInp = el("input", { type: "text", value: "deepseek-flash", placeholder: "deepseek-flash" });
+    var aiSaveCfgBtn = el("button", { type: "button", class: "btn btn-sm btn-primary", text: "保存配置" });
+    var aiCfgPanel = el("div", { class: "doc-ai-config", hidden: true },
+      el("div", { class: "row", style: "justify-content:space-between" },
+        el("span", { class: "small", text: "拍照识卷使用 DeepSeek 多模态视觉接口（默认模型 deepseek-flash），不要求规范 PDF" }),
+        aiStatusBadge,
+      ),
+      el("div", { class: "doc-ai-grid" },
+        el("div", { class: "field" }, el("label", { text: "DeepSeek API Key（留空保持已存密钥）" }), aiKeyInp),
+        el("div", { class: "field" }, el("label", { text: "API Base URL" }), aiBaseInp),
+        el("div", { class: "field" }, el("label", { text: "视觉模型名" }), aiModelInp),
+        aiSaveCfgBtn,
+      ),
+    );
+
+    function refreshAiConfigBadge(cfg) {
+      parseState.aiConfig = cfg;
+      if (!cfg) return;
+      if (cfg.baseUrl) aiBaseInp.value = cfg.baseUrl;
+      if (cfg.model) aiModelInp.value = cfg.model;
+      aiStatusBadge.textContent = cfg.configured
+        ? "已配置 (" + cfg.maskedKey + " · " + cfg.model + ")"
+        : "未配置 API Key";
+      aiStatusBadge.className = "label " + (cfg.configured ? "ui-soft-success" : "ui-soft-attention");
+      aiCfgToggleBtn.textContent = cfg.configured ? "🔑 DeepSeek 已就绪" : "🔑 配置 DeepSeek API";
+    }
+
+    GS.api("GET", "/api/exam/admin/ai-config").then(function (r) {
+      refreshAiConfigBadge(r.config);
+    }).catch(function () {});
+
+    aiSaveCfgBtn.addEventListener("click", function () {
+      var done = GS.busy(aiSaveCfgBtn, "保存中…");
+      var body = {
+        baseUrl: aiBaseInp.value.trim(),
+        model: aiModelInp.value.trim(),
+      };
+      if (aiKeyInp.value.trim()) body.apiKey = aiKeyInp.value.trim();
+      GS.api("PUT", "/api/exam/admin/ai-config", body).then(function (r) {
+        aiKeyInp.value = "";
+        refreshAiConfigBadge(r.config);
+        GS.toast("DeepSeek API 配置已保存");
+      }).catch(fail).finally(done);
+    });
+
+    var docStatusEl = el("span", { class: "small muted", text: "支持直接拍照 / 多张试卷照片 (DeepSeek AI 自动识题型与分值，无需严格 PDF) 或上传文字版 PDF / Word (.docx) / TXT / MD" });
     var docResultHost = el("div");
     var docBox = el("div", { class: "doc-import-box" },
       docInput,
+      photoCamInput,
+      photoAlbumInput,
       el("div", { class: "doc-import-top" },
-        el("div", { class: "doc-import-title" }, icon("layers"), el("span", { text: "上传试卷文档自动扫描配置" })),
-        el("div", { class: "row" }, pickDocBtn),
+        el("div", { class: "doc-import-title" }, icon("layers"), el("span", { text: "智能识卷（拍照 / 图片 / PDF / Word）" })),
+        el("div", { class: "row" }, pickPhotosBtn, takePhotoBtn, scanCropAiBtn, pickDocBtn, aiCfgToggleBtn),
       ),
       docStatusEl,
+      aiCfgPanel,
       docResultHost,
     );
+
+    function compressImageFileToDataUrl(file) {
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          URL.revokeObjectURL(url);
+          var maxSide = 1800;
+          var w = img.naturalWidth || img.width;
+          var h = img.naturalHeight || img.height;
+          if (!w || !h) return reject(new Error("无法读取图片尺寸"));
+          var scale = Math.min(1, maxSide / Math.max(w, h));
+          var cw = Math.max(1, Math.round(w * scale));
+          var ch = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement("canvas");
+          canvas.width = cw;
+          canvas.height = ch;
+          var ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, cw, ch);
+          ctx.drawImage(img, 0, 0, cw, ch);
+          resolve(canvas.toDataURL("image/jpeg", 0.86));
+        };
+        img.onerror = function () {
+          URL.revokeObjectURL(url);
+          reject(new Error("图片解码失败：" + (file.name || "")));
+        };
+        img.src = url;
+      });
+    }
+
+    function submitPhotosToAI(imagesArr) {
+      if (!imagesArr || !imagesArr.length || parseState.busy) return;
+      var hasCfg = (parseState.aiConfig && parseState.aiConfig.configured) || aiKeyInp.value.trim();
+      if (!hasCfg) {
+        aiCfgPanel.hidden = false;
+        aiKeyInp.focus();
+        GS.toast("请先填写你的 DeepSeek API Key");
+        return;
+      }
+      parseState.busy = true;
+      var done = GS.busy(pickPhotosBtn, "AI 识图中…");
+      docStatusEl.textContent = "正在调用 DeepSeek 识别 " + imagesArr.length + " 张试卷照片中的题型、小题分值与参考答案（约 5–20 秒）…";
+
+      var payload = { images: imagesArr };
+      if (aiKeyInp.value.trim()) payload.apiKey = aiKeyInp.value.trim();
+      if (aiBaseInp.value.trim()) payload.baseUrl = aiBaseInp.value.trim();
+      if (aiModelInp.value.trim()) payload.model = aiModelInp.value.trim();
+
+      GS.api("POST", "/api/exam/admin/parse-photos", payload).then(function (r) {
+        parseState.parsed = r.parsed;
+        parseState.structMode = "single";
+        parseState.splitSub = false;
+        docStatusEl.textContent = "AI 识卷完成：识别到 " + r.parsed.sections.length + " 种题型、共 " + r.parsed.stats.totalQuestions + " 题（总分 " + r.parsed.fullScore + " 分）。请核对下方题目并保存。";
+        applyParsedToForm(true);
+        renderDocResult();
+        GS.toast("已从照片识别并填入 " + r.parsed.stats.totalQuestions + " 道题目");
+      }).catch(function (err) {
+        docStatusEl.textContent = "AI 识卷失败：" + ((err && err.message) || "请检查 API Key 与网络");
+        if (/API Key/i.test(String(err && err.message || ""))) aiCfgPanel.hidden = false;
+        fail(err);
+      }).finally(function () {
+        parseState.busy = false;
+        done();
+      });
+    }
+
+    function handlePhotoFiles(fileList) {
+      var files = Array.prototype.slice.call(fileList || []).filter(function (f) {
+        return f && (/^image\//.test(f.type) || /\.(?:jpe?g|png|webp|heic|bmp)$/i.test(f.name || ""));
+      });
+      if (!files.length) return GS.toast("请选择有效的试卷图片（JPEG / PNG / WebP）");
+      if (files.length > 16) return GS.toast("单次最多选择 16 张照片");
+      docStatusEl.textContent = "正在压缩预处理 " + files.length + " 张试卷照片…";
+      Promise.all(files.map(compressImageFileToDataUrl)).then(function (dataUrls) {
+        submitPhotosToAI(dataUrls.map(function (d, i) { return { pageNo: i + 1, imageData: d }; }));
+      }).catch(function (err) {
+        docStatusEl.textContent = "图片预处理失败：" + ((err && err.message) || "");
+        fail(err);
+      }).finally(function () {
+        photoCamInput.value = "";
+        photoAlbumInput.value = "";
+      });
+    }
 
     function applyParsedToForm(fillMeta) {
       var p = parseState.parsed;
@@ -1227,6 +1487,12 @@
     docInput.addEventListener("change", function () {
       if (docInput.files && docInput.files[0]) uploadDocFile(docInput.files[0]);
     });
+    photoCamInput.addEventListener("change", function () {
+      if (photoCamInput.files && photoCamInput.files.length) handlePhotoFiles(photoCamInput.files);
+    });
+    photoAlbumInput.addEventListener("change", function () {
+      if (photoAlbumInput.files && photoAlbumInput.files.length) handlePhotoFiles(photoAlbumInput.files);
+    });
     docBox.addEventListener("dragover", function (e) {
       e.preventDefault();
       docBox.classList.add("is-drag");
@@ -1237,9 +1503,11 @@
     docBox.addEventListener("drop", function (e) {
       e.preventDefault();
       docBox.classList.remove("is-drag");
-      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
-        uploadDocFile(e.dataTransfer.files[0]);
-      }
+      var files = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []);
+      if (!files.length) return;
+      var imgFiles = files.filter(function (f) { return /^image\//.test(f.type) || /\.(?:jpe?g|png|webp)$/i.test(f.name || ""); });
+      if (imgFiles.length) handlePhotoFiles(imgFiles);
+      else uploadDocFile(files[0]);
     });
 
     function renderSubjects() {
@@ -1499,8 +1767,12 @@
           // 构造小题打分数组（优先已有作答，否则按科目模板初始化）
           var itemsEdited = !!(mine.items && mine.items.length);
           var itemDrafts = (mine.items && mine.items.length)
-            ? mine.items.map(function (x) { return { no: x.no, title: x.title, tag: x.tag, full: x.full, got: x.got, wrong: x.wrong }; })
-            : (sub.questions || []).map(function (q) { return { no: q.no, title: q.title, tag: q.tag, full: q.full, got: q.full, wrong: false }; });
+            ? mine.items.map(function (x) {
+              return { no: x.no, title: x.title, tag: x.tag, full: x.full, got: x.got, wrong: x.wrong, section: x.section, qtype: x.qtype, studentAnswer: x.studentAnswer || "", aiComment: x.aiComment || "" };
+            })
+            : (sub.questions || []).map(function (q) {
+              return { no: q.no, title: q.title, tag: q.tag, full: q.full, got: q.full, wrong: false, section: q.section, qtype: q.qtype, studentAnswer: "", aiComment: "" };
+            });
 
           var scoreInp = el("input", { type: "number", step: "0.5", min: "0", max: sub.fullScore, value: mine.score !== "" ? String(mine.score) : "" });
           var absentChk = el("input", { type: "checkbox", checked: !!mine.absent });
@@ -1526,9 +1798,12 @@
                   recalcSum();
                 },
               });
+              var descParts = [(it.title || it.tag || "小题") + "（" + (it.tag || "综合") + "）"];
+              if (it.studentAnswer) descParts.push("作答：" + it.studentAnswer);
+              if (it.aiComment) descParts.push("AI：" + it.aiComment);
               itemsWrap.append(el("div", { class: "item-score-row" },
                 el("strong", { text: "#" + it.no }),
-                el("span", { text: (it.title || it.tag || "小题") + "（" + (it.tag || "综合") + "）" }),
+                el("span", { text: descParts.join(" · ") }),
                 gInp,
                 el("span", { class: "muted", text: "/ " + it.full + " 分" }),
               ));
@@ -1578,7 +1853,7 @@
             el("div", { class: "form-actions" }, saveScoreBtn),
           );
 
-          // 右侧：管理员专属扫描全能王拍图并提交成绩
+          // 右侧：管理员专属扫描全能王拍图 + DeepSeek AI 自动批改答题卡
           var nextNo = sub.papers.length ? sub.papers[sub.papers.length - 1].pageNo + 1 : 1;
           var scanBtn = el("button", {
             type: "button", class: "btn btn-primary",
@@ -1597,11 +1872,30 @@
                 onUploaded: function () { refreshSilentAndStay(); },
               });
             },
-          }, icon("phone"), "📷 手机拍卷扫描并提交成绩（管理员）");
+          }, icon("phone"), "📷 手机拍答题卡并提交/AI批改");
+
+          var aiGradeBtn = sub.papers.length ? el("button", {
+            type: "button",
+            class: "btn",
+            text: "🤖 AI 自动批改已传答题卡",
+            onclick: function () {
+              var done = GS.busy(aiGradeBtn, "AI 阅卷中…");
+              GS.api("POST", "/api/exam/admin/ai-grade", {
+                examId: exam.id,
+                subjectId: sub.id,
+                userId: student.id,
+                applyAnnotations: true,
+                autoSave: true,
+              }).then(function (r) {
+                GS.toast("AI 自动批改完成：" + r.grading.score + " / " + r.grading.fullScore + " 分，已更新红笔批注与错题本");
+                refreshSilentAndStay();
+              }).catch(function (err) { done(); fail(err); });
+            },
+          }) : null;
 
           var papersList = el("div", { style: "display:grid;gap:.65rem;margin-top:.85rem" });
           if (!sub.papers.length) {
-            papersList.append(el("p", { class: "muted small", text: "暂无扫描原卷。支持手机拍照、相册选图，自动透视矫正与去阴影漂白。" }));
+            papersList.append(el("p", { class: "muted small", text: "暂无答题卡扫描件。支持手机拍照、相册选图，自动透视矫正并支持 DeepSeek AI 自动批改。" }));
           } else {
             sub.papers.forEach(function (p) {
               papersList.append(el("div", { class: "box-row", style: "padding:.6rem .75rem;border:1px solid var(--ui-border);border-radius:var(--ui-r)" },
@@ -1622,8 +1916,8 @@
           }
 
           var rightCol = el("div", { class: "exam-card" },
-            el("div", { class: "exam-card-head" }, el("h3", { text: "扫描原卷（" + sub.papers.length + " 页）" })),
-            scanBtn,
+            el("div", { class: "exam-card-head" }, el("h3", { text: "答题卡扫描与 AI 批改（" + sub.papers.length + " 页）" })),
+            el("div", { class: "row" }, scanBtn, aiGradeBtn),
             papersList,
           );
 

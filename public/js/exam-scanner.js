@@ -613,15 +613,17 @@
     var liveQuad = defaultQuad(0.08);
     var annTool = "none"; // none | check | cross | circle
 
+    var extractMode = opts.mode === "extract";
     var hasInitScore = opts.initialScore !== undefined && opts.initialScore !== "" && opts.initialScore !== null;
     var scoreDraft = hasInitScore ? String(opts.initialScore) : "";
     var commentDraft = opts.initialComment || "";
     var syncScore = !!(opts.subject && hasInitScore);
+    var aiAutoGrade = !!(!extractMode && opts.subject && opts.aiGradeDefault);
 
-    var dlg = el("dialog", { class: "ui-dialog ui scanner-dialog", "aria-label": "管理员阅卷扫描仪" });
+    var dlg = el("dialog", { class: "ui-dialog ui scanner-dialog", "aria-label": extractMode ? "拍照扫卷并识别题型" : "管理员阅卷扫描仪" });
     dlg.setAttribute("data-lenis-prevent", "");
 
-    var titleEl = el("span", { class: "grow", text: "管理员阅卷扫描仪 · 拍卷并提交成绩" });
+    var titleEl = el("span", { class: "grow", text: extractMode ? "扫描全能王识卷 · 切边去阴影后交由 AI 识别题型" : "管理员阅卷扫描仪 · 拍卷并提交成绩" });
     var closeBtn = el("button", { class: "btn btn-sm btn-invisible", type: "button", "aria-label": "关闭" }, icon("close"));
     var header = el("header", null, icon("phone"), titleEl,
       opts.student ? el("span", { class: "exam-no-pill", text: "考号 " + (opts.student.examNo || "—") }) : null,
@@ -1229,8 +1231,21 @@
           placeholder: "教师评语（可选）",
         });
         var syncScoreChk = el("input", { type: "checkbox", checked: syncScore });
+        var aiGradeChk = el("input", { type: "checkbox", checked: aiAutoGrade });
 
         function updateUploadBtnText() {
+          if (extractMode) {
+            uploadBtn.textContent = queue.length > 1
+              ? "用这 " + queue.length + " 页 AI 识别题型"
+              : "提交给 AI 识别题型";
+            return;
+          }
+          if (opts.subject && aiGradeChk.checked) {
+            uploadBtn.textContent = queue.length > 1
+              ? "上传答题卡并 AI 自动批改（" + queue.length + " 页）"
+              : "上传答题卡并 AI 自动批改";
+            return;
+          }
           var willSync = !!(opts.subject && syncScoreChk.checked && scoreInp.value.trim() !== "");
           if (willSync) {
             uploadBtn.textContent = queue.length > 1
@@ -1244,8 +1259,10 @@
         }
         scoreInp.addEventListener("input", function () {
           scoreDraft = this.value;
-          if (this.value.trim() !== "" && !syncScoreChk.checked) {
+          if (this.value.trim() !== "") {
             syncScoreChk.checked = true;
+            aiAutoGrade = false;
+            aiGradeChk.checked = false;
           }
           syncScore = syncScoreChk.checked;
           updateUploadBtnText();
@@ -1253,11 +1270,17 @@
         commentInp.addEventListener("input", function () { commentDraft = this.value; });
         syncScoreChk.addEventListener("change", function () {
           syncScore = this.checked;
+          if (syncScore) { aiAutoGrade = false; aiGradeChk.checked = false; }
+          updateUploadBtnText();
+        });
+        aiGradeChk.addEventListener("change", function () {
+          aiAutoGrade = this.checked;
+          if (aiAutoGrade) { syncScore = false; syncScoreChk.checked = false; }
           updateUploadBtnText();
         });
         updateUploadBtnText();
 
-        var scoreBox = opts.subject ? el("div", { class: "scanner-score-box" },
+        var scoreBox = (!extractMode && opts.subject) ? el("div", { class: "scanner-score-box" },
           el("div", { class: "scanner-score-head" },
             el("strong", { text: "提交给成员：" + ((opts.student && (opts.student.displayName || opts.student.username)) || "") + (opts.student && opts.student.examNo ? "（考号 " + opts.student.examNo + "）" : "") }),
             el("span", { class: "small muted", text: opts.subject.name + " · 满分 " + opts.subject.fullScore + (opts.examStatus === "draft" ? " · 当前为草稿考试" : "") }),
@@ -1266,14 +1289,29 @@
             el("label", { class: "scanner-score-field" }, el("span", { text: "本次得分" }), scoreInp),
             el("label", { class: "scanner-score-field grow" }, el("span", { text: "教师评语" }), commentInp),
           ),
-          el("label", { class: "scanner-check" }, syncScoreChk, "上传扫描件时同步提交该科成绩给成员"),
+          el("div", { class: "row", style: "gap:1rem" },
+            el("label", { class: "scanner-check" }, aiGradeChk, "🤖 上传后由 DeepSeek AI 自动批改、判分并生成红笔批注"),
+            el("label", { class: "scanner-check" }, syncScoreChk, "改为手动提交上方填写成绩"),
+          ),
         ) : null;
 
-        body.append(stage2, filterBar, tuneBar, annBar);
+        body.append(stage2, filterBar, tuneBar);
+        if (!extractMode) body.append(annBar);
         if (scoreBox) body.append(scoreBox);
 
         uploadBtn.addEventListener("click", function () {
-          var willSync = !!(opts.subject && syncScoreChk.checked && scoreInp.value.trim() !== "");
+          if (extractMode) {
+            var pagesOut = queue.map(function (it, idx) {
+              if (!it.warpedCanvas) it.warpedCanvas = warpPerspective(it.srcCanvas, it.quad, it.lockA4);
+              if (!it.enhancedCanvas) it.enhancedCanvas = applyFilter(it.warpedCanvas, it.filter, it.brightness, it.contrast);
+              return { pageNo: idx + 1, imageData: it.enhancedCanvas.toDataURL("image/jpeg", 0.86) };
+            });
+            cleanup();
+            if (opts.onExtract) opts.onExtract(pagesOut);
+            return;
+          }
+          var useAiGrade = !!(opts.subject && aiGradeChk.checked);
+          var willSync = !useAiGrade && !!(opts.subject && syncScoreChk.checked && scoreInp.value.trim() !== "");
           var scoreVal = Number(scoreInp.value);
           if (willSync && (!Number.isFinite(scoreVal) || scoreVal < 0 || scoreVal > opts.subject.fullScore)) {
             GS.toast("请输入 0–" + opts.subject.fullScore + " 之间的有效分数");
@@ -1309,6 +1347,18 @@
               });
             });
           }, Promise.resolve([])).then(function (uploadedPages) {
+            if (useAiGrade) {
+              uploadBtn.textContent = "DeepSeek AI 正在自动阅卷批改…";
+              return GS.api("POST", "/api/exam/admin/ai-grade", {
+                examId: opts.examId,
+                subjectId: opts.subjectId,
+                userId: opts.student.id,
+                applyAnnotations: true,
+                autoSave: true,
+              }).then(function (gr) {
+                return { uploadedPages: uploadedPages, syncedScore: true, aiGrading: gr.grading };
+              });
+            }
             if (!willSync) return { uploadedPages: uploadedPages, syncedScore: false };
             uploadBtn.textContent = "正在提交成绩给成员…";
             var payload = {
@@ -1326,11 +1376,15 @@
               return { uploadedPages: uploadedPages, syncedScore: true };
             });
           }).then(function (res) {
-            GS.toast(res.syncedScore
-              ? "已上传 " + res.uploadedPages.length + " 页扫描试卷并提交成绩给成员"
-              : "已上传 " + res.uploadedPages.length + " 页扫描试卷");
+            if (res.aiGrading) {
+              GS.toast("AI 已批改完成：实得 " + res.aiGrading.score + " / " + res.aiGrading.fullScore + " 分（已生成红笔批注与错题本）");
+            } else {
+              GS.toast(res.syncedScore
+                ? "已上传 " + res.uploadedPages.length + " 页扫描试卷并提交成绩给成员"
+                : "已上传 " + res.uploadedPages.length + " 页扫描试卷");
+            }
             cleanup();
-            if (opts.onUploaded) opts.onUploaded(res.uploadedPages, res.syncedScore);
+            if (opts.onUploaded) opts.onUploaded(res.uploadedPages, res.syncedScore, res.aiGrading);
           }).catch(function (err) {
             done();
             updateUploadBtnText();
