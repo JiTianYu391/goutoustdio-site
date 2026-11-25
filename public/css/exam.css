@@ -235,7 +235,7 @@
   gap: 1.25rem;
   align-items: start;
 }
-.item-score-list { display: grid; gap: .55rem; margin-top: .75rem; }
+.item-score-list { display: grid; gap: .55rem; margin-top: .75rem; max-height: 24rem; overflow-y: auto; padding-right: .25rem; }
 .item-score-row {
   display: grid; grid-template-columns: 3.4rem minmax(0, 1fr) 5.5rem 4.2rem;
   gap: .5rem; align-items: center;
@@ -246,15 +246,84 @@
 }
 .item-score-row input[type="number"] { padding: .28rem .45rem; min-height: 1.75rem; }
 
-.exam-modal { width: min(100% - 1.5rem, 48rem); max-height: 90dvh; }
-.exam-modal .dialog-body { max-height: calc(90dvh - 8rem); overflow-y: auto; }
+.exam-modal { width: min(100% - 1.5rem, 56rem); max-height: 92dvh; }
+.exam-modal .dialog-body { max-height: calc(92dvh - 8rem); overflow-y: auto; }
+
+/* 试卷文档自动识别区 */
+.doc-import-box {
+  padding: .9rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--pg-radius-lg);
+  border: 1.5px dashed color-mix(in srgb, var(--pg-accent) 45%, var(--ui-border));
+  background: color-mix(in srgb, var(--pg-accent-soft) 55%, var(--pg-bg-sunken));
+  display: grid;
+  gap: .65rem;
+  transition: border-color .18s ease, background-color .18s ease;
+}
+.doc-import-box.is-drag {
+  border-color: var(--pg-accent);
+  background: var(--pg-accent-soft);
+}
+.doc-import-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.doc-import-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-weight: 600;
+  font-size: var(--pg-text-sm);
+}
+.doc-import-title .icon { color: var(--pg-accent); width: 1.1rem; height: 1.1rem; flex: none; }
+.doc-import-result {
+  padding: .75rem .85rem;
+  border-radius: var(--pg-radius);
+  border: 1px solid var(--ui-border);
+  background: var(--pg-bg-card);
+  display: grid;
+  gap: .55rem;
+}
+.doc-import-pills {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.doc-import-controls {
+  display: flex;
+  gap: .85rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: .45rem;
+  border-top: 1px solid var(--ui-border);
+}
+
 .sub-editor-row {
   padding: .8rem; border-radius: var(--pg-radius);
   border: 1px solid var(--ui-border); background: var(--pg-bg-sunken);
   display: grid; gap: .65rem; margin-bottom: .75rem;
 }
 .sub-editor-fields { display: grid; grid-template-columns: 1.4fr .8fr .8fr .8fr auto; gap: .5rem; align-items: end; }
-.q-editor-row { display: grid; grid-template-columns: 4rem 1.3fr .9fr 4.8rem 1fr auto; gap: .4rem; align-items: center; margin-top: .4rem; }
+.q-section-summary {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.q-editor-list {
+  display: grid;
+  gap: .4rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding-right: .25rem;
+}
+.q-editor-list[hidden] { display: none; }
+.q-editor-row { display: grid; grid-template-columns: 4rem 1.3fr 5.8rem .95fr 4.4rem 1.05fr auto; gap: .4rem; align-items: center; }
 
 /* ---------- 扫描全能王模态框 ---------- */
 .scanner-dialog { width: min(100% - 1.5rem, 56rem); max-height: 92dvh; }
@@ -318,7 +387,7 @@
   .exam-charts-grid { grid-template-columns: 1fr; }
   .score-entry-grid { grid-template-columns: 1fr; }
   .sub-editor-fields { grid-template-columns: 1fr 1fr; }
-  .q-editor-row { grid-template-columns: 3.5rem 1fr 1fr; }
+  .q-editor-row { grid-template-columns: 3.6rem 1fr 1fr; }
 }
 @media (max-width: 40rem) {
   .exam-kpi-grid { grid-template-columns: 1fr 1fr; gap: .7rem; }

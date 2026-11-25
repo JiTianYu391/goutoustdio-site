@@ -61,13 +61,46 @@
     var toggle = document.getElementById("nav-toggle");
     var menu = document.getElementById("site-nav");
     var drops = Array.prototype.slice.call(document.querySelectorAll(".site-nav details.menu"));
+    var desktopHover = window.matchMedia && window.matchMedia("(min-width: 56.01rem) and (hover: hover)");
 
     function closeDrops(except) {
       drops.forEach(function (d) { if (d !== except) d.removeAttribute("open"); });
     }
-    // 下拉菜单一次只开一个；点到别处或按 Esc 收起。
+    // 下拉菜单一次只开一个；点到别处或按 Esc 收起；桌面端支持 hover-intent 悬停展开与延时关闭。
     drops.forEach(function (d) {
+      var closeTimer = null;
+      var hoverOpenedAt = 0;
+      var sum = d.querySelector(":scope > summary");
+
       d.addEventListener("toggle", function () { if (d.open) closeDrops(d); });
+
+      d.addEventListener("mouseenter", function () {
+        if (!desktopHover || !desktopHover.matches) return;
+        if (closeTimer) { window.clearTimeout(closeTimer); closeTimer = null; }
+        if (!d.open) {
+          hoverOpenedAt = Date.now();
+          closeDrops(d);
+          d.setAttribute("open", "");
+        }
+      });
+
+      d.addEventListener("mouseleave", function () {
+        if (!desktopHover || !desktopHover.matches) return;
+        if (closeTimer) window.clearTimeout(closeTimer);
+        closeTimer = window.setTimeout(function () {
+          closeTimer = null;
+          d.removeAttribute("open");
+        }, 180);
+      });
+
+      if (sum) {
+        sum.addEventListener("click", function (e) {
+          // 鼠标刚刚悬停展开时，紧跟着的误触点击不立刻关掉菜单；键盘回车或停留后的再次点击可正常切换
+          if (e.detail > 0 && d.open && Date.now() - hoverOpenedAt < 650) {
+            e.preventDefault();
+          }
+        });
+      }
     });
     document.addEventListener("click", function (e) {
       drops.forEach(function (d) { if (d.open && !d.contains(e.target)) d.removeAttribute("open"); });

@@ -8,12 +8,14 @@ import * as A from "../auth.js";
 import {
   str, USER_RE, MAIL_RE, EXAM_NO_RE, need, needAdmin, getUser, syncAdmin,
 } from "../util.js";
+import { parseExamDocument } from "../exam-parser.js";
 
 const r = Router();
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_STATUS = new Set(["draft", "published"]);
 const ALLOWED_FILTERS = new Set(["magic", "bw", "gray", "enhance", "original"]);
 const ALLOWED_ANN_TYPES = new Set(["check", "cross", "circle", "line", "text"]);
+const ALLOWED_QTYPES = new Set(["choice", "multi_choice", "judge", "blank", "essay", "other"]);
 
 const num = (v, def = 0) => {
   const n = Number(v);
@@ -62,13 +64,20 @@ function competitionRank(sortedDesc, myVal) {
 
 function parseQuestions(rawQuestions, fullScoreFallback = 100) {
   if (!Array.isArray(rawQuestions)) return [];
-  return rawQuestions.slice(0, 100).map((q, idx) => ({
-    no: str(q?.no || String(idx + 1)).trim().slice(0, 16) || String(idx + 1),
-    title: str(q?.title).trim().slice(0, 120),
-    tag: str(q?.tag).trim().slice(0, 32) || "综合能力",
-    full: Math.max(0.5, Math.min(1000, num(q?.full, round1(fullScoreFallback / Math.max(1, rawQuestions.length))))),
-    answer: str(q?.answer).trim().slice(0, 500),
-  }));
+  return rawQuestions.slice(0, 150).map((q, idx) => {
+    const item = {
+      no: str(q?.no || String(idx + 1)).trim().slice(0, 16) || String(idx + 1),
+      title: str(q?.title).trim().slice(0, 240),
+      tag: str(q?.tag).trim().slice(0, 32) || "综合能力",
+      full: Math.max(0.5, Math.min(1000, num(q?.full, round1(fullScoreFallback / Math.max(1, rawQuestions.length))))),
+      answer: str(q?.answer).trim().slice(0, 1500),
+    };
+    const section = str(q?.section).trim().slice(0, 24);
+    const qtype = str(q?.qtype).trim();
+    if (section) item.section = section;
+    if (ALLOWED_QTYPES.has(qtype)) item.qtype = qtype;
+    return item;
+  });
 }
 
 function normalizeAnnotations(raw) {
@@ -243,7 +252,7 @@ function normalizeAndSaveScore({ examId, subject, userId, gradedBy, payload }) {
           const hit = byNo.get(q.no);
           const full = q.full;
           const got = hit ? Math.max(0, Math.min(full, num(hit.got, full))) : 0;
-          return {
+          const out = {
             no: q.no,
             title: q.title || "",
             tag: q.tag || "综合能力",
@@ -252,19 +261,22 @@ function normalizeAndSaveScore({ examId, subject, userId, gradedBy, payload }) {
             wrong: !!(hit?.wrong) || got < full - 1e-6,
             answer: q.answer || "",
           };
+          if (q.section) out.section = q.section;
+          if (q.qtype) out.qtype = q.qtype;
+          return out;
         });
       } else {
-        items = rawItems.slice(0, 100).map((x, idx) => {
+        items = rawItems.slice(0, 150).map((x, idx) => {
           const full = Math.max(0.5, Math.min(1000, num(x.full, 10)));
           const got = Math.max(0, Math.min(full, num(x.got, 0)));
           return {
             no: str(x.no || String(idx + 1)).trim().slice(0, 16) || String(idx + 1),
-            title: str(x.title).trim().slice(0, 120),
+            title: str(x.title).trim().slice(0, 240),
             tag: str(x.tag).trim().slice(0, 32) || "综合能力",
             full,
             got: round1(got),
             wrong: !!(x.wrong) || got < full - 1e-6,
-            answer: str(x.answer).trim().slice(0, 500),
+            answer: str(x.answer).trim().slice(0, 1500),
           };
         });
       }
@@ -611,6 +623,8 @@ r.get("/exams/:examId/report", (req, res) => {
           no: it.no,
           title: it.title || "",
           tag: tName,
+          ...(it.section ? { section: it.section } : {}),
+          ...(it.qtype ? { qtype: it.qtype } : {}),
           full: it.full,
           got: it.got,
           wrong: !!it.wrong || it.got < it.full - 1e-6,
@@ -986,6 +1000,22 @@ r.delete("/admin/users/:id", (req, res) => {
   db.prepare("DELETE FROM users WHERE id=?").run(id);
   unlinkPaperFiles(paperFiles);
   res.json({ ok: true });
+});
+
+// ---- 试卷文档解析（PDF / DOCX / TXT / MD 自动扫描题型与分值） ----
+r.post("/admin/parse-doc", async (req, res) => {
+  try {
+    const parsed = await parseExamDocument({
+      filename: str(req.body?.filename),
+      mimeType: str(req.body?.mimeType),
+      fileDataUrl: str(req.body?.fileDataUrl),
+      text: str(req.body?.text),
+    });
+    res.json({ parsed });
+  } catch (e) {
+    const status = Number(e?.status) >= 400 && Number(e?.status) < 500 ? Number(e.status) : 400;
+    res.status(status).json({ error: e?.message || "试卷文档解析失败" });
+  }
 });
 
 // ---- 考试管理 ----

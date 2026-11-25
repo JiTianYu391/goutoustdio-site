@@ -40,9 +40,17 @@ app.use(helmet({
 app.use("/api", (_req, res, next) => { res.set("Cache-Control", "no-store"); res.set("Vary", "Cookie"); next(); });
 app.use(cookieParser());
 const jsonSmall = express.json({ limit: "64kb" });
-const jsonUpload = express.json({ limit: "15mb" });
-app.use("/api", (req, res, next) =>
-  (req.path === "/exam/admin/papers" && req.method === "POST" ? jsonUpload : jsonSmall)(req, res, next));
+const jsonMedium = express.json({ limit: "512kb" });
+const jsonUpload = express.json({ limit: "20mb" });
+app.use("/api", (req, res, next) => {
+  if ((req.path === "/exam/admin/papers" || req.path === "/exam/admin/parse-doc") && req.method === "POST") {
+    return jsonUpload(req, res, next);
+  }
+  if (/^\/exam\/admin\/(?:exams(?:\/\d+)?|scores(?:\/batch)?)$/.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {
+    return jsonMedium(req, res, next);
+  }
+  return jsonSmall(req, res, next);
+});
 
 // CSRF：SameSite=Lax + 写请求校验 Origin 与 Host 一致。退订链接自带签名，邮件客户端的一键退订没有 Origin，放行
 app.use("/api", (req, res, next) => {

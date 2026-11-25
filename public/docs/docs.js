@@ -90,16 +90,28 @@ function toast(text) {
   const h = document.getElementById('docHeader');
   if (!h) return;
   const root = document.documentElement;
+  const topLinks = (window.GS_NAV && Array.isArray(window.GS_NAV.docsTopNav))
+    ? window.GS_NAV.docsTopNav
+    : [
+      { label: '文档', href: '/docs', current: true },
+      { label: '控制台', href: 'https://pay.goutoustdio.top/merchant', rel: 'noopener' },
+      { label: '内部考试', href: '/exam' },
+      { label: '问题反馈', href: '/support' },
+      { label: '主站', href: '/' },
+    ];
+  const topNavHtml = topLinks.map((item) => {
+    const attrs = [`href="${item.href}"`];
+    if (item.rel) attrs.push(`rel="${item.rel}"`);
+    if (item.current) attrs.push('aria-current="page"');
+    return `<a ${attrs.join(' ')}>${item.label}</a>`;
+  }).join('\n      ');
   h.innerHTML = `
     <button class="icon-btn doc-menu-btn" id="menuBtn" type="button" aria-label="打开文档目录" aria-controls="docSide" aria-expanded="false">${ICON.menu}</button>
     <a class="doc-brand" href="/docs">${BRAND}GoutouStdio<span class="sub">开放平台</span></a>
     <span class="spacer"></span>
     ${searchButton()}
     <nav class="doc-topnav" aria-label="相关站点">
-      <a href="/docs" aria-current="page">文档</a>
-      <a href="https://pay.goutoustdio.top/merchant" rel="noopener">控制台</a>
-      <a href="/exam">内部考试</a>
-      <a href="/">主站</a>
+      ${topNavHtml}
     </nav>
     <a class="icon-btn" href="https://github.com/JiTianYu391/goutoustdio-site" target="_blank" rel="noopener" aria-label="GitHub 仓库" title="GitHub 仓库">${ICON.github}</a>
     <button class="icon-btn" id="themeBtn" type="button" aria-label="切换明暗主题" title="切换主题">${root.dataset.theme === 'dark' ? ICON.sun : ICON.moon}</button>

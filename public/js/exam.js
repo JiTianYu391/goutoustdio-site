@@ -941,15 +941,103 @@
     });
   }
 
+  var QTYPE_LABELS = {
+    choice: "选择题",
+    multi_choice: "多选题",
+    judge: "判断题",
+    blank: "填空题",
+    essay: "大题",
+    other: "综合题",
+  };
+
+  function qtypeLabel(qtype, section) {
+    if (section) return section;
+    return QTYPE_LABELS[qtype] || "综合题";
+  }
+
+  function buildSubjectsFromParsed(parsed, structMode, splitSub) {
+    if (!parsed || !Array.isArray(parsed.questions) || !parsed.questions.length) {
+      return [{
+        name: (parsed && parsed.subjectName) || "综合试卷",
+        fullScore: (parsed && parsed.fullScore) || 100,
+        passScore: Math.round(((parsed && parsed.fullScore) || 100) * 0.6 * 10) / 10,
+        excellentScore: Math.round(((parsed && parsed.fullScore) || 100) * 0.85 * 10) / 10,
+        questions: [],
+      }];
+    }
+
+    var flatQs = [];
+    parsed.questions.forEach(function (q) {
+      if (splitSub && Array.isArray(q.subQuestions) && q.subQuestions.length) {
+        q.subQuestions.forEach(function (sq) {
+          flatQs.push({
+            no: sq.no,
+            title: sq.title || q.title || "",
+            tag: sq.tag || q.tag || q.section || "综合能力",
+            full: Number(sq.full) || 1,
+            answer: sq.answer || "",
+            section: q.section || "",
+            qtype: q.qtype || "essay",
+          });
+        });
+      } else {
+        flatQs.push({
+          no: q.no,
+          title: q.title || "",
+          tag: q.tag || q.section || "综合能力",
+          full: Number(q.full) || 1,
+          answer: q.answer || "",
+          section: q.section || "",
+          qtype: q.qtype || "other",
+        });
+      }
+    });
+
+    if (structMode === "by_section") {
+      var groups = [];
+      var bySec = {};
+      flatQs.forEach(function (q) {
+        var key = q.section || qtypeLabel(q.qtype, "");
+        if (!bySec[key]) {
+          bySec[key] = { name: key.slice(0, 40), questions: [] };
+          groups.push(bySec[key]);
+        }
+        bySec[key].questions.push(q);
+      });
+      return groups.slice(0, 20).map(function (g) {
+        var sum = Math.round(g.questions.reduce(function (s, x) { return s + (Number(x.full) || 0); }, 0) * 10) / 10;
+        var fullScore = Math.max(1, sum || 100);
+        return {
+          name: g.name,
+          fullScore: fullScore,
+          passScore: Math.round(fullScore * 0.6 * 10) / 10,
+          excellentScore: Math.round(fullScore * 0.85 * 10) / 10,
+          questions: g.questions.slice(0, 150),
+        };
+      });
+    }
+
+    var total = Math.round(flatQs.reduce(function (s, x) { return s + (Number(x.full) || 0); }, 0) * 10) / 10;
+    var finalFull = Math.max(1, Number(parsed.fullScore) || total || 100);
+    return [{
+      name: (parsed.subjectName || "综合试卷").slice(0, 40),
+      fullScore: finalFull,
+      passScore: Math.round(finalFull * 0.6 * 10) / 10,
+      excellentScore: Math.round(finalFull * 0.85 * 10) / 10,
+      questions: flatQs.slice(0, 150),
+    }];
+  }
+
   function openExamModal(existing) {
     var subjects = existing
       ? existing.subjects.map(function (s) {
         return {
           id: s.id, name: s.name, fullScore: s.fullScore, passScore: s.passScore, excellentScore: s.excellentScore,
+          expanded: (s.questions || []).length <= 45,
           questions: (s.questions || []).map(function (q) { return Object.assign({}, q); }),
         };
       })
-      : [{ name: "综合能力测评", fullScore: 100, passScore: 60, excellentScore: 85, questions: [] }];
+      : [{ name: "综合能力测评", fullScore: 100, passScore: 60, excellentScore: 85, expanded: true, questions: [] }];
 
     var dlg = el("dialog", { class: "ui-dialog ui exam-modal", "aria-label": existing ? "编辑考试" : "新建考试" });
     dlg.setAttribute("data-lenis-prevent", "");
@@ -966,6 +1054,194 @@
     var rankChk = el("input", { type: "checkbox", checked: !existing || existing.showRank });
     var subHost = el("div");
 
+    // 试卷文档自动识别区（PDF / Word .docx / TXT / MD）
+    var parseState = {
+      parsed: null,
+      structMode: "single",
+      splitSub: false,
+      busy: false,
+    };
+    var docInput = el("input", {
+      type: "file",
+      accept: ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown",
+      hidden: true,
+    });
+    var pickDocBtn = el("button", {
+      type: "button",
+      class: "btn btn-sm",
+      onclick: function () { docInput.click(); },
+    }, icon("layers"), "选择试卷文档");
+    var docStatusEl = el("span", { class: "small muted", text: "支持文字版 PDF / Word (.docx) / TXT / Markdown（≤ 12MB），自动识别题型、分值、参考答案与双向细目表，并自动跳过答题卡" });
+    var docResultHost = el("div");
+    var docBox = el("div", { class: "doc-import-box" },
+      docInput,
+      el("div", { class: "doc-import-top" },
+        el("div", { class: "doc-import-title" }, icon("layers"), el("span", { text: "上传试卷文档自动扫描配置" })),
+        el("div", { class: "row" }, pickDocBtn),
+      ),
+      docStatusEl,
+      docResultHost,
+    );
+
+    function applyParsedToForm(fillMeta) {
+      var p = parseState.parsed;
+      if (!p) return;
+      if (fillMeta) {
+        if (p.title) titleInp.value = p.title;
+        if (p.term) termInp.value = p.term;
+        if (p.description) descInp.value = p.description;
+      }
+      subjects = buildSubjectsFromParsed(p, parseState.structMode, parseState.splitSub).map(function (s) {
+        s.expanded = true;
+        return s;
+      });
+      renderSubjects();
+    }
+
+    function renderDocResult() {
+      docResultHost.textContent = "";
+      var p = parseState.parsed;
+      if (!p) return;
+
+      var hasSubQs = p.questions.some(function (q) { return Array.isArray(q.subQuestions) && q.subQuestions.length > 0; });
+      var pills = [
+        label((p.format || "DOC").toUpperCase() + " · " + p.pageCount + " 页", "accent"),
+        label("满分 " + p.fullScore + " 分", "success"),
+      ];
+      if (p.duration) pills.push(label(p.duration + " 分钟"));
+      if (p.mode) pills.push(label(p.mode));
+      (p.sections || []).forEach(function (sec) {
+        pills.push(label(sec.name + " " + sec.questionCount + "题·" + sec.totalScore + "分"));
+      });
+      if (p.stats.answeredCount > 0) {
+        pills.push(label("已匹配答案 " + p.stats.answeredCount + "/" + p.stats.totalQuestions + " 题", "success"));
+      }
+      if (p.stats.hasSpecTable) {
+        pills.push(label("双向细目表 " + p.specChapters.length + " 章知识点", "accent"));
+      }
+      if (p.stats.skippedAnswerSheet) {
+        pills.push(label("已跳过答题卡"));
+      }
+
+      var modeSingleBtn = el("button", {
+        type: "button",
+        class: "btn btn-sm" + (parseState.structMode === "single" ? " btn-primary" : ""),
+        text: "单科整卷（" + (p.subjectName || "综合") + "）",
+        onclick: function () {
+          parseState.structMode = "single";
+          applyParsedToForm(false);
+          renderDocResult();
+        },
+      });
+      var modeBySecBtn = el("button", {
+        type: "button",
+        class: "btn btn-sm" + (parseState.structMode === "by_section" ? " btn-primary" : ""),
+        text: "按题型分科（" + (p.sections.length || 1) + " 科）",
+        onclick: function () {
+          parseState.structMode = "by_section";
+          applyParsedToForm(false);
+          renderDocResult();
+        },
+      });
+
+      var splitChk = hasSubQs
+        ? el("input", {
+          type: "checkbox",
+          checked: parseState.splitSub,
+          onchange: function () {
+            parseState.splitSub = !!this.checked;
+            applyParsedToForm(false);
+            renderDocResult();
+          },
+        })
+        : null;
+
+      var rightAction = el("button", {
+        type: "button",
+        class: "btn btn-sm",
+        text: "重新填入标题与说明",
+        onclick: function () {
+          applyParsedToForm(true);
+          GS.toast("已重新应用文档识别结果");
+        },
+      });
+
+      docResultHost.append(el("div", { class: "doc-import-result" },
+        el("div", { class: "row", style: "justify-content:space-between" },
+          el("strong", { class: "small", text: "已识别：" + (p.filename || "试卷文档") }),
+          rightAction,
+        ),
+        el("div", { class: "doc-import-pills" }, pills),
+        el("div", { class: "doc-import-controls" },
+          el("div", { class: "row" },
+            el("span", { class: "small muted", text: "结构模式：" }),
+            modeSingleBtn,
+            modeBySecBtn,
+          ),
+          splitChk ? el("label", { class: "scanner-check" }, splitChk, "大题按小问拆分（如 36(1)）") : false,
+        ),
+      ));
+    }
+
+    function uploadDocFile(file) {
+      if (!file || parseState.busy) return;
+      if (file.size > 12 * 1024 * 1024) {
+        return GS.toast("文档大小不能超过 12MB");
+      }
+      parseState.busy = true;
+      var done = GS.busy(pickDocBtn, "识别中…");
+      docStatusEl.textContent = "正在解析「" + file.name + "」的题型结构与参考答案…";
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        GS.api("POST", "/api/exam/admin/parse-doc", {
+          filename: file.name,
+          mimeType: file.type || "",
+          fileDataUrl: String(reader.result || ""),
+        }).then(function (r) {
+          parseState.parsed = r.parsed;
+          parseState.structMode = "single";
+          parseState.splitSub = false;
+          docStatusEl.textContent = "解析完成：识别到 " + r.parsed.sections.length + " 种题型、共 " + r.parsed.stats.totalQuestions + " 题（总分 " + r.parsed.fullScore + " 分）。可在下方继续微调后保存。";
+          applyParsedToForm(true);
+          renderDocResult();
+          GS.toast("已自动填入 " + r.parsed.stats.totalQuestions + " 道题目与配置");
+        }).catch(function (err) {
+          docStatusEl.textContent = "识别失败：" + ((err && err.message) || "请检查文档格式");
+          fail(err);
+        }).finally(function () {
+          parseState.busy = false;
+          done();
+          docInput.value = "";
+        });
+      };
+      reader.onerror = function () {
+        parseState.busy = false;
+        done();
+        docStatusEl.textContent = "读取本地文件失败，请重试";
+        GS.toast("读取本地文件失败");
+      };
+      reader.readAsDataURL(file);
+    }
+
+    docInput.addEventListener("change", function () {
+      if (docInput.files && docInput.files[0]) uploadDocFile(docInput.files[0]);
+    });
+    docBox.addEventListener("dragover", function (e) {
+      e.preventDefault();
+      docBox.classList.add("is-drag");
+    });
+    docBox.addEventListener("dragleave", function () {
+      docBox.classList.remove("is-drag");
+    });
+    docBox.addEventListener("drop", function (e) {
+      e.preventDefault();
+      docBox.classList.remove("is-drag");
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+        uploadDocFile(e.dataTransfer.files[0]);
+      }
+    });
+
     function renderSubjects() {
       subHost.textContent = "";
       subjects.forEach(function (s, idx) {
@@ -974,19 +1250,66 @@
         var passI = el("input", { type: "number", step: "0.5", min: "0", value: s.passScore, oninput: function () { s.passScore = Number(this.value) || 0; } });
         var excI = el("input", { type: "number", step: "0.5", min: "0", value: s.excellentScore, oninput: function () { s.excellentScore = Number(this.value) || 0; } });
 
-        var qWrap = el("div");
+        var countLabel = el("span", { class: "small muted" });
+        var summaryHost = el("div", { class: "q-section-summary" });
+        var qWrap = el("div", { class: "q-editor-list" });
+        if (s.expanded === false) qWrap.hidden = true;
+
+        var toggleQsBtn = el("button", {
+          type: "button",
+          class: "btn btn-sm",
+          onclick: function () {
+            s.expanded = qWrap.hidden;
+            qWrap.hidden = !s.expanded;
+            toggleQsBtn.textContent = s.expanded ? "收起小题" : "展开小题 (" + s.questions.length + ")";
+          },
+        });
+
+        function updateQSummary() {
+          var qSum = Math.round(s.questions.reduce(function (acc, q) { return acc + (Number(q.full) || 0); }, 0) * 10) / 10;
+          countLabel.textContent = "小题模板（共 " + s.questions.length + " 题 · 合计 " + qSum + " 分 · 失分自动进错题本）";
+          toggleQsBtn.hidden = s.questions.length <= 6;
+          toggleQsBtn.textContent = qWrap.hidden ? "展开小题 (" + s.questions.length + ")" : "收起小题";
+
+          summaryHost.textContent = "";
+          var secMap = {};
+          var secOrder = [];
+          s.questions.forEach(function (q) {
+            var lbl = qtypeLabel(q.qtype, q.section);
+            if (!secMap[lbl]) { secMap[lbl] = { count: 0, score: 0 }; secOrder.push(lbl); }
+            secMap[lbl].count++;
+            secMap[lbl].score = Math.round((secMap[lbl].score + (Number(q.full) || 0)) * 10) / 10;
+          });
+          if (secOrder.length > 1 || (secOrder.length === 1 && s.questions.length > 0)) {
+            secOrder.forEach(function (lbl) {
+              summaryHost.append(label(lbl + " " + secMap[lbl].count + "题·" + secMap[lbl].score + "分"));
+            });
+          }
+        }
+
         function renderQs() {
           qWrap.textContent = "";
           s.questions.forEach(function (q, qIdx) {
+            var qtSel = el("select", {
+              onchange: function () {
+                q.qtype = this.value;
+                q.section = QTYPE_LABELS[this.value] || "综合题";
+                updateQSummary();
+              },
+            }, Object.keys(QTYPE_LABELS).map(function (k) {
+              return el("option", { value: k, selected: (q.qtype || "other") === k, text: QTYPE_LABELS[k] });
+            }));
             qWrap.append(el("div", { class: "q-editor-row" },
               el("input", { value: q.no, placeholder: "题号", oninput: function () { q.no = this.value; } }),
               el("input", { value: q.title || "", placeholder: "题目描述", oninput: function () { q.title = this.value; } }),
+              qtSel,
               el("input", { value: q.tag || "", placeholder: "知识点标签", oninput: function () { q.tag = this.value; } }),
-              el("input", { type: "number", step: "0.5", min: "0.5", value: q.full, placeholder: "满分", oninput: function () { q.full = Number(this.value) || 1; } }),
+              el("input", { type: "number", step: "0.5", min: "0.5", value: q.full, placeholder: "满分", oninput: function () { q.full = Number(this.value) || 1; updateQSummary(); } }),
               el("input", { value: q.answer || "", placeholder: "标准答案/解析", oninput: function () { q.answer = this.value; } }),
               el("button", { type: "button", class: "btn btn-sm btn-danger", text: "删", onclick: function () { s.questions.splice(qIdx, 1); renderQs(); } }),
             ));
           });
+          updateQSummary();
         }
         renderQs();
 
@@ -999,21 +1322,27 @@
             subjects.length > 1 ? el("button", { type: "button", class: "btn btn-sm btn-danger", text: "移除科目", onclick: function () { subjects.splice(idx, 1); renderSubjects(); } }) : el("span"),
           ),
           el("div", { class: "row", style: "justify-content:space-between" },
-            el("span", { class: "small muted", text: "小题模板（共 " + s.questions.length + " 题 · 失分自动进错题本）" }),
+            countLabel,
             el("div", { class: "row" },
+              toggleQsBtn,
               el("button", { type: "button", class: "btn btn-sm", text: "+ 加 1 小题", onclick: function () {
-                s.questions.push({ no: String(s.questions.length + 1), title: "", tag: "核心能力", full: 10, answer: "" });
+                s.expanded = true;
+                qWrap.hidden = false;
+                s.questions.push({ no: String(s.questions.length + 1), title: "", qtype: "other", section: "综合题", tag: "核心能力", full: 10, answer: "" });
                 renderQs();
               } }),
               el("button", { type: "button", class: "btn btn-sm", text: "批量生成 5 题", onclick: function () {
+                s.expanded = true;
+                qWrap.hidden = false;
                 var each = Math.round((s.fullScore / 5) * 10) / 10;
                 for (var k = 0; k < 5; k++) {
-                  s.questions.push({ no: String(s.questions.length + 1), title: "第 " + (s.questions.length + 1) + " 题", tag: "模块 " + ((k % 3) + 1), full: each, answer: "" });
+                  s.questions.push({ no: String(s.questions.length + 1), title: "第 " + (s.questions.length + 1) + " 题", qtype: "other", section: "综合题", tag: "模块 " + ((k % 3) + 1), full: each, answer: "" });
                 }
                 renderQs();
               } }),
             ),
           ),
+          summaryHost,
           qWrap,
         ));
       });
@@ -1026,6 +1355,7 @@
     dlg.append(
       el("header", null, icon("calendar"), el("span", { class: "grow", text: existing ? "编辑考试配置" : "新建内部考试" })),
       el("div", { class: "dialog-body" },
+        docBox,
         el("div", { class: "field" }, el("label", { text: "考试名称" }), titleInp),
         el("div", { style: "display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin-top:.75rem" },
           el("div", { class: "field" }, el("label", { text: "期次 / 学期" }), termInp),
@@ -1037,7 +1367,7 @@
         el("div", { class: "subhead", style: "margin-top:1rem" },
           el("h3", { text: "科目与小题模板" }),
           el("button", { type: "button", class: "btn btn-sm", text: "+ 添加科目", onclick: function () {
-            subjects.push({ name: "科目 " + (subjects.length + 1), fullScore: 100, passScore: 60, excellentScore: 85, questions: [] });
+            subjects.push({ name: "科目 " + (subjects.length + 1), fullScore: 100, passScore: 60, excellentScore: 85, expanded: true, questions: [] });
             renderSubjects();
           } }),
         ),
