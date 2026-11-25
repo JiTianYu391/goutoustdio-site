@@ -893,7 +893,7 @@ r.post("/admin/users", async (req, res) => {
   if (!USER_RE.test(username)) return res.status(400).json({ error: "用户名为 2–24 位字母、数字、中文、_ 或 -" });
   if (displayName.length > 32) return res.status(400).json({ error: "姓名/昵称最多 32 字" });
   if (!MAIL_RE.test(email)) return res.status(400).json({ error: "邮箱格式不正确" });
-  if (password.length < 8 || password.length > 128) return res.status(400).json({ error: "密码长度需为 8–128 位" });
+  if (password.length < 4 || password.length > 128) return res.status(400).json({ error: "初始密码长度需为 4–128 位" });
   if (examNo && !EXAM_NO_RE.test(examNo)) return res.status(400).json({ error: "考号必须为 4 位数字（如 0413）" });
 
   if (db.prepare("SELECT 1 FROM users WHERE username=? OR email=?").get(username, email)) {
@@ -933,8 +933,8 @@ r.patch("/admin/users/:id", async (req, res) => {
   if (displayName.length > 32) return res.status(400).json({ error: "姓名/昵称最多 32 字" });
   if (!MAIL_RE.test(email)) return res.status(400).json({ error: "邮箱格式不正确" });
   if (examNo && !EXAM_NO_RE.test(examNo)) return res.status(400).json({ error: "考号必须为 4 位数字（如 0413）" });
-  if (newPassword && (newPassword.length < 8 || newPassword.length > 128)) {
-    return res.status(400).json({ error: "新密码长度需为 8–128 位" });
+  if (newPassword && (newPassword.length < 4 || newPassword.length > 128)) {
+    return res.status(400).json({ error: "新密码长度需为 4–128 位" });
   }
   if (id === req.user.id && nextRole !== "admin") {
     return res.status(400).json({ error: "不能取消当前登录账号的管理员权限" });

@@ -1518,7 +1518,13 @@
         el("option", { value: "user", selected: !u || u.role === "user", text: "普通员工" }),
         el("option", { value: "admin", selected: u && u.role === "admin", text: "管理员（可录分/扫卷/管理用户）" }),
       );
-      var pwI = el("input", { type: "password", placeholder: isNew ? "至少 8 位初始密码" : "留空则不修改密码" });
+      var pwI = el("input", { type: "password", placeholder: isNew ? "4–128 位初始密码（支持 4 位，如 0413）" : "留空则不修改密码（支持 4–128 位）" });
+      var sameNoBtn = el("button", { type: "button", class: "btn btn-sm", text: "同考号", onclick: function () {
+        var no = examNoI.value.trim();
+        if (!/^\d{4}$/.test(no)) return GS.toast("请先填写 4 位考号");
+        pwI.value = no;
+        GS.toast("已将密码设为考号 " + no);
+      } });
       var banChk = el("input", { type: "checkbox", checked: !!(u && u.banned) });
       var verChk = el("input", { type: "checkbox", checked: isNew ? true : !!(u && u.emailVerified) });
 
@@ -1536,7 +1542,8 @@
             el("div", { class: "field" }, el("label", { text: "部门 / 组别" }), deptI),
             el("div", { class: "field" }, el("label", { text: "账号角色" }), roleSel),
           ),
-          el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: isNew ? "初始密码" : "重置密码（可选）" }), pwI),
+          el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: isNew ? "初始密码" : "重置密码（可选）" }),
+            el("div", { class: "row" }, el("div", { class: "grow" }, pwI), sameNoBtn)),
           el("div", { class: "row", style: "margin-top:.85rem" },
             el("label", { class: "scanner-check" }, verChk, "邮箱已验证"),
             !isNew && u.id !== state.me.id ? el("label", { class: "scanner-check" }, banChk, "封禁此账号") : null,

@@ -115,21 +115,36 @@ test("管理员用户增删改与 4 位数字考号（保留前导零如 0413）
   assert.equal(u2.status, 201);
   emp2Id = u2.json.user.id;
 
+  // 3 位密码应被拒绝，4 位初始密码允许创建与重置并可直接登录
+  const shortPw = await api("POST", "/api/exam/admin/users", {
+    username: "shortpw", email: "shortpw@goutoustdio.top", password: "123", examNo: "0998",
+  }, adminCookie);
+  assert.equal(shortPw.status, 400);
+
   const uTmp = await api("POST", "/api/exam/admin/users", {
-    username: "tempuser", email: "temp@goutoustdio.top", password: "temp-password-123", examNo: "0999",
+    username: "tempuser", email: "temp@goutoustdio.top", password: "1234", examNo: "0999",
   }, adminCookie);
   assert.equal(uTmp.status, 201);
   tempUserId = uTmp.json.user.id;
 
-  // 修改用户资料与重置密码
+  const login4Create = await api("POST", "/api/login", { identifier: "0999", password: "1234" });
+  assert.equal(login4Create.status, 200);
+  assert.equal(login4Create.json.user.examNo, "0999");
+
+  // 修改用户资料与重置 4 位密码
   const patch = await api("PATCH", `/api/exam/admin/users/${tempUserId}`, {
     displayName: "临时员工",
     department: "测试组",
     examNo: "0888",
+    password: "0413",
   }, adminCookie);
   assert.equal(patch.status, 200);
   assert.equal(patch.json.user.examNo, "0888");
   assert.equal(patch.json.user.department, "测试组");
+
+  const login4Reset = await api("POST", "/api/login", { identifier: "0888", password: "0413" });
+  assert.equal(login4Reset.status, 200);
+  assert.equal(login4Reset.json.user.examNo, "0888");
 
   // 删除用户，且禁止删除当前登录管理员
   const del = await api("DELETE", `/api/exam/admin/users/${tempUserId}`, undefined, adminCookie);
