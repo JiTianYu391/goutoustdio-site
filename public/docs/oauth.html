@@ -10,9 +10,9 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/docs/docs.css">
-<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
 </head>
 <body class="doc" data-page="oauth">
+<script src="/js/theme-init.js"></script>
 <header class="doc-header" id="docHeader"></header>
 <div class="doc-scrim" id="docScrim"></div>
 <div class="doc-shell">
@@ -167,6 +167,11 @@ const { access_token, refresh_token, expires_in } = await r.json();</pre>
     </article>
   </main>
 </div>
+<script src="/js/vendor/gsap.min.js"></script>
+<script src="/js/vendor/ScrollTrigger.min.js"></script>
+<script src="/js/vendor/SplitText.min.js"></script>
+<script src="/js/vendor/lenis.min.js"></script>
 <script src="/docs/docs.js"></script>
+<script src="/docs/docs-motion.js"></script>
 </body>
 </html>

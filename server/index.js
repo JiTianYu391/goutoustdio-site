@@ -13,6 +13,7 @@ import accountRoutes from "./routes/account.js";
 import commentRoutes from "./routes/comments.js";
 import ticketRoutes from "./routes/tickets.js";
 import adminRoutes from "./routes/admin.js";
+import examRoutes from "./routes/exam.js";
 import oauthRoutes, { oauthCleanup, SCOPES } from "./oauth.js";
 
 const app = express();
@@ -30,7 +31,7 @@ app.use(helmet({
       // Cloudflare 会自动注入 Web Analytics 脚本（含一段内联初始化），这里放行它和截图所在的 raw.githubusercontent.com
       "script-src": ["'self'", "https://static.cloudflareinsights.com", "'sha256-f3hdOU1QscqxHyyMkQCCyaLeNK4GEvqsgMC25eSfQ+k='"],
       "connect-src": ["'self'", "https://cloudflareinsights.com"],
-      "img-src": ["'self'", "data:", "https://raw.githubusercontent.com"],
+      "img-src": ["'self'", "data:", "blob:", "https://raw.githubusercontent.com"],
       "upgrade-insecure-requests": null,
     },
   },
@@ -38,7 +39,10 @@ app.use(helmet({
 }));
 app.use("/api", (_req, res, next) => { res.set("Cache-Control", "no-store"); res.set("Vary", "Cookie"); next(); });
 app.use(cookieParser());
-app.use("/api", express.json({ limit: "64kb" }));
+const jsonSmall = express.json({ limit: "64kb" });
+const jsonUpload = express.json({ limit: "15mb" });
+app.use("/api", (req, res, next) =>
+  (req.path === "/exam/admin/papers" && req.method === "POST" ? jsonUpload : jsonSmall)(req, res, next));
 
 // CSRF：SameSite=Lax + 写请求校验 Origin 与 Host 一致。退订链接自带签名，邮件客户端的一键退订没有 Origin，放行
 app.use("/api", (req, res, next) => {
@@ -54,6 +58,7 @@ db.prepare("SELECT id FROM users").all().forEach((r) => syncAdmin(r.id)); // 启
 
 app.use("/api", authRoutes, mfaRoutes, accountRoutes, commentRoutes, ticketRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/exam", examRoutes);
 app.use("/api", (_req, res) => res.status(404).json({ error: "not found" }));
 
 // ---------- 开放平台：OAuth 2.0 端点 ----------
@@ -90,6 +95,7 @@ app.get("/docs/:page", (req, res, next) => {
 
 const page = (file) => (_req, res) => res.sendFile(path.join(pub, file));
 for (const p of ["login", "register", "account", "verify", "forgot", "reset", "admin"]) app.get(`/${p}`, page(`${p}.html`));
+app.get(["/exam", "/exam/:tab"], page("exam.html"));
 app.get(["/support", "/support/:id"], page("support.html"));
 app.get("/u/:username", page("user.html"));
 // ---------- SpaceOS 包仓库：持久盘上的静态文件 ----------

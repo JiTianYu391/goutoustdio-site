@@ -1,5 +1,5 @@
-// GoutouStdio 开放平台文档：三栏导航、本页目录、跨页搜索、代码语言切换。
-// 无构建步骤：每个页面只写正文，导航 / 目录 / 搜索索引在这里统一生成。
+// GoutouStdio 开放平台文档：三栏导航、本页目录、跨页搜索、代码语言切换、主站同款主题圆形转场与装饰层。
+// 无构建步骤：每个页面只写正文，导航 / 目录 / 搜索索引在这里统一生成；动效由 docs-motion.js 渐进增强。
 'use strict';
 
 const NAV = [
@@ -35,17 +35,45 @@ const ICON = {
   link: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 1 0-5.66-5.66l-1.5 1.5"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 1 0 5.66 5.66l1.5-1.5"/></svg>',
 };
 
-const BRAND = '<svg viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="4" width="22" height="6" rx="2" fill="url(#bg1)"/><rect x="3" y="11" width="22" height="6" rx="2" fill="url(#bg2)"/><rect x="3" y="18" width="22" height="6" rx="2" fill="url(#bg3)"/><defs><linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c6cff"/><stop offset="1" stop-color="#22d3ee"/></linearGradient><linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8b7cff"/><stop offset="1" stop-color="#3ec8e6"/></linearGradient><linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a094ff"/><stop offset="1" stop-color="#67e3f6"/></linearGradient></defs></svg>';
+const BRAND = '<svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="m1" x="3" y="4" width="22" height="6" rx="2"/><rect class="m2" x="3" y="11" width="22" height="6" rx="2"/><rect class="m3" x="3" y="18" width="22" height="6" rx="2"/></svg>';
 
 const searchButton = (cls = '') => `<button class="doc-search-btn js-search ${cls}" type="button" aria-label="搜索文档（快捷键 ⌘K）">${ICON.search}<span>搜索文档</span><span class="kbd"><kbd>⌘</kbd><kbd>K</kbd></span></button>`;
 
+const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const syncLenisLock = () => {
+  const locked = document.body.classList.contains('nav-open') || document.body.classList.contains('search-open');
+  if (window.docLenis) {
+    if (locked) window.docLenis.stop();
+    else window.docLenis.start();
+  }
+};
+
+// ---------- 极光与网格装饰层 ----------
+(function backdrop() {
+  if ($('.doc-backdrop')) return;
+  const layer = document.createElement('div');
+  layer.className = 'doc-backdrop';
+  layer.setAttribute('aria-hidden', 'true');
+  document.body.prepend(layer);
+})();
+
 // ---------- 主题 ----------
-(function initTheme() {
+function applyTheme(theme, persist) {
   const root = document.documentElement;
+  const dark = theme !== 'light';
+  root.dataset.theme = dark ? 'dark' : 'light';
+  document.body.classList.toggle('theme-dark', dark);
+  const btn = $('#themeBtn');
+  if (btn) btn.innerHTML = dark ? ICON.sun : ICON.moon;
+  if (persist) {
+    try { localStorage.setItem('pg-theme', dark ? 'dark' : 'light'); } catch (_) { /* 隐私模式忽略 */ }
+  }
+}
+
+(function initTheme() {
   let stored = null;
   try { stored = localStorage.getItem('pg-theme'); } catch (_) { /* 隐私模式 */ }
-  root.dataset.theme = stored === 'light' ? 'light' : 'dark';
-  document.body.classList.toggle('theme-dark', root.dataset.theme === 'dark');
+  applyTheme(stored === 'light' ? 'light' : 'dark', false);
 })();
 
 function toast(text) {
@@ -70,18 +98,30 @@ function toast(text) {
     <nav class="doc-topnav" aria-label="相关站点">
       <a href="/docs" aria-current="page">文档</a>
       <a href="https://pay.goutoustdio.top/merchant" rel="noopener">控制台</a>
+      <a href="/exam">内部考试</a>
       <a href="/">主站</a>
     </nav>
     <a class="icon-btn" href="https://github.com/JiTianYu391/goutoustdio-site" target="_blank" rel="noopener" aria-label="GitHub 仓库" title="GitHub 仓库">${ICON.github}</a>
     <button class="icon-btn" id="themeBtn" type="button" aria-label="切换明暗主题" title="切换主题">${root.dataset.theme === 'dark' ? ICON.sun : ICON.moon}</button>
     <a class="cta" href="/docs/index">接入指南</a>`;
 
-  $('#themeBtn').addEventListener('click', () => {
+  const themeBtn = $('#themeBtn');
+  themeBtn.addEventListener('click', () => {
     const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
-    root.dataset.theme = next;
-    document.body.classList.toggle('theme-dark', next === 'dark');
-    $('#themeBtn').innerHTML = next === 'dark' ? ICON.sun : ICON.moon;
-    try { localStorage.setItem('pg-theme', next); } catch (_) { /* 忽略 */ }
+    if (!document.startViewTransition || reducedMotion()) { applyTheme(next, true); return; }
+    const rect = themeBtn.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+    root.classList.add('vt-theme');
+    const vt = document.startViewTransition(() => applyTheme(next, true));
+    vt.ready.then(() => {
+      root.animate(
+        { clipPath: [`circle(0 at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+        { duration: 560, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', pseudoElement: '::view-transition-new(root)' },
+      );
+    }).catch(() => {});
+    vt.finished.then(() => root.classList.remove('vt-theme'), () => root.classList.remove('vt-theme'));
   });
 })();
 
@@ -90,8 +130,8 @@ function toast(text) {
   const side = document.getElementById('docSide');
   const nav = document.getElementById('docNav');
   if (!side || !nav) return;
+  side.setAttribute('data-lenis-prevent', '');
 
-  // 页面里旧的搜索框换成按钮（手机抽屉里用，桌面用顶栏搜索）
   const old = $('.doc-search', side);
   if (old) old.outerHTML = searchButton('side-search');
 
@@ -111,7 +151,7 @@ function toast(text) {
   }
 
   const foot = document.createElement('div');
-  foot.className = 'doc-side-foot';
+  foot.className = 'doc-side-foot spot';
   foot.innerHTML = `<b>需要帮助？</b>接入遇到问题可以提交工单，或直接看示例代码。
     <div class="links"><a href="/support">提交工单</a><a href="/docs/example">示例代码</a><a href="/docs/errors">错误码</a></div>`;
   side.appendChild(foot);
@@ -129,6 +169,7 @@ function toast(text) {
     btn.setAttribute('aria-expanded', String(open));
     btn.setAttribute('aria-label', open ? '关闭文档目录' : '打开文档目录');
     btn.innerHTML = open ? ICON.close : ICON.menu;
+    syncLenisLock();
     if (open) { const first = side.querySelector('a'); if (first) first.focus({ preventScroll: true }); }
     else btn.focus({ preventScroll: true });
   };
@@ -145,20 +186,26 @@ function toast(text) {
   if (!article) return;
   const h1 = article.querySelector('h1');
   const lede = article.querySelector('.lede');
+  if (!h1) return;
 
   const crumbs = document.createElement('div');
   crumbs.className = 'doc-crumbs';
   crumbs.setAttribute('aria-label', '当前位置');
   crumbs.innerHTML = `<a href="/docs">文档</a><span class="sep">/</span><span>${current.group}</span><span class="sep">/</span><span class="here">${current.title}</span>`;
-  article.insertBefore(crumbs, h1);
+  h1.parentNode.insertBefore(crumbs, h1);
 
   const clone = article.cloneNode(true);
-  clone.querySelectorAll('pre, .codeblock, .doc-table, .doc-meta, .doc-crumbs, .toc-mobile, .anchor').forEach((n) => n.remove());
+  clone.querySelectorAll('pre, .codeblock, .doc-table, .doc-meta, .doc-crumbs, .toc-mobile, .anchor, svg.art').forEach((n) => n.remove());
   const minutes = Math.max(1, Math.round((clone.textContent || '').length / 450));
   const info = document.createElement('div');
   info.className = 'doc-meta';
   info.innerHTML = `<span>阅读约 ${minutes} 分钟</span><button type="button" class="copy-link">${ICON.link} 复制本页链接</button>`;
-  if (lede) lede.insertAdjacentElement('afterend', info); else h1.insertAdjacentElement('afterend', info);
+
+  const heroActions = article.querySelector('.doc-hero .actions');
+  if (heroActions) heroActions.insertAdjacentElement('afterend', info);
+  else if (lede) lede.insertAdjacentElement('afterend', info);
+  else h1.insertAdjacentElement('afterend', info);
+
   info.querySelector('.copy-link').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); toast('本页链接已复制'); }
     catch { prompt('复制本页链接', location.href); }
@@ -180,19 +227,18 @@ const tocLinks = [];
   aside.className = 'doc-toc';
   aside.id = 'docToc';
   aside.setAttribute('aria-label', '本页目录');
+  aside.setAttribute('data-lenis-prevent', '');
   aside.innerHTML = `<p class="toc-title">本页目录</p><nav>${items.map((i) => `<a href="#${i.id}" class="lv${i.level}" data-id="${i.id}">${i.text}</a>`).join('')}</nav>`;
   shell.appendChild(aside);
   tocLinks.push(...$$('a[data-id]', aside));
 
-  // 手机：正文顶部的折叠目录
   const mobile = document.createElement('details');
   mobile.className = 'toc-mobile';
   mobile.innerHTML = `<summary>本页目录${ICON.chevron}</summary><nav>${items.map((i) => `<a href="#${i.id}" class="lv${i.level}">${i.text}</a>`).join('')}</nav>`;
-  const anchorEl = article.querySelector('.doc-meta') || article.querySelector('.doc-crumbs') || article.querySelector('h1');
-  anchorEl.insertAdjacentElement('afterend', mobile);
+  const anchorEl = article.querySelector('.doc-hero') || article.querySelector('.doc-meta') || article.querySelector('.doc-crumbs') || article.querySelector('h1');
+  if (anchorEl) anchorEl.insertAdjacentElement('afterend', mobile);
   mobile.addEventListener('click', (e) => { if (e.target.closest('a')) mobile.open = false; });
 
-  // 滚动高亮
   let ticking = false;
   const spy = () => {
     ticking = false;
@@ -241,7 +287,6 @@ const tocLinks = [];
     $$('tbody tr', table).forEach((tr) => {
       [...tr.children].forEach((td, i) => {
         if (heads[i]) td.dataset.label = heads[i];
-        // 把单元格内容包一层，手机端才能「标签 | 内容」两栏排，不会被文字节点拆散
         if (!td.querySelector('.td-body')) {
           const body = document.createElement('span');
           body.className = 'td-body';
@@ -252,14 +297,14 @@ const tocLinks = [];
     });
     if (!table.parentElement.classList.contains('table-wrap')) {
       const wrap = document.createElement('div');
-      wrap.className = 'table-wrap';
+      wrap.className = 'table-wrap spot';
       table.parentNode.insertBefore(wrap, table);
       wrap.appendChild(table);
     }
   });
 })();
 
-// ---------- 代码块：语言切换（跨页记忆）+ 复制 ----------
+// ---------- 代码块：语言切换 + 复制弹簧动画 ----------
 (function codeBlocks() {
   const LANGS = { shell: 'Shell', bash: 'Shell', text: '文本', json: 'JSON', node: 'Node.js', js: 'JavaScript', client: '客户端', server: '服务端', python: 'Python', curl: 'curl', html: 'HTML', express: 'Express', url: 'URL' };
   let preferred = null;
@@ -272,10 +317,11 @@ const tocLinks = [];
     tabs.forEach((t) => t.classList.toggle('active', t.dataset.lang === lang));
     panes.forEach((p) => { p.hidden = p.dataset.lang !== lang; });
     const copy = $('.copy', block);
-    if (copy) copy.textContent = '复制';
+    if (copy) { copy.textContent = '复制'; copy.classList.remove('is-done'); }
   };
 
   $$('.codeblock').forEach((block) => {
+    block.classList.add('spot');
     const tabs = $$('.lang-tabs button', block);
     const panes = $$('pre[data-lang]', block);
     panes.forEach((p) => { p.hidden = true; });
@@ -315,23 +361,25 @@ const tocLinks = [];
             document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
           }
           copy.textContent = '已复制';
-          setTimeout(() => { copy.textContent = '复制'; }, 1600);
+          copy.classList.add('is-done');
+          setTimeout(() => { copy.textContent = '复制'; copy.classList.remove('is-done'); }, 1600);
         } catch (_) { toast('复制失败，请手动选择'); }
       });
     }
   });
 })();
 
-// ---------- 页尾：反馈 + 翻页 ----------
+// ---------- 页尾：反馈 + 翻页 + 品牌大字标 ----------
 (function footer() {
   const article = $('.doc-article');
+  const main = $('.doc-main');
   if (!article) return;
 
   const key = 'gs_doc_feedback:' + page;
   let saved = null;
   try { saved = localStorage.getItem(key); } catch (_) { /* 忽略 */ }
   const fb = document.createElement('div');
-  fb.className = 'doc-feedback';
+  fb.className = 'doc-feedback spot';
   fb.innerHTML = saved
     ? `<p>谢谢反馈，我们会继续改进这一页。</p>`
     : `<p>这一页对你有帮助吗？</p><div class="btns"><button type="button" data-v="yes">有帮助</button><button type="button" data-v="no">没帮助</button></div>`;
@@ -349,16 +397,24 @@ const tocLinks = [];
     const pager = document.createElement('div');
     pager.className = 'prev-next';
     pager.innerHTML = [
-      prev ? `<a class="prev" href="${prev.href}"><span>上一页</span>${prev.title}</a>` : '',
-      next ? `<a class="next" href="${next.href}"><span>下一页</span>${next.title}</a>` : '',
+      prev ? `<a class="prev spot" href="${prev.href}"><span>上一页</span>${prev.title}</a>` : '',
+      next ? `<a class="next spot" href="${next.href}"><span>下一页</span>${next.title}</a>` : '',
     ].join('');
     article.appendChild(pager);
+  }
+
+  if (main) {
+    const mark = document.createElement('div');
+    mark.className = 'doc-footer-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = 'GoutouStdio';
+    main.appendChild(mark);
   }
 })();
 
 // ---------- 搜索 ----------
 (function search() {
-  let index = null, loading = null, active = 0, results = [], lastQuery = '';
+  let index = null, loading = null, active = 0, results = [];
   const KEY = 'gs_docs_index_v2';
 
   const overlay = document.createElement('div');
@@ -370,7 +426,7 @@ const tocLinks = [];
         <input id="searchInput" type="search" placeholder="搜索接口、参数或概念…" autocomplete="off" spellcheck="false" aria-controls="searchResults">
         <button class="icon-btn search-close" type="button" aria-label="关闭搜索">${ICON.close}</button>
       </div>
-      <div class="search-results" id="searchResults"></div>
+      <div class="search-results" id="searchResults" data-lenis-prevent></div>
       <div class="search-foot">
         <span class="k"><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
         <span class="k"><kbd>Enter</kbd> 打开</span>
@@ -433,7 +489,6 @@ const tocLinks = [];
   }
 
   function render(q) {
-    lastQuery = q;
     const query = q.trim().toLowerCase();
     let items;
     if (!query) {
@@ -485,6 +540,7 @@ const tocLinks = [];
     if (menuBtn) menuBtn.setAttribute('aria-expanded', 'false');
     overlay.classList.add('open');
     document.body.classList.add('search-open');
+    syncLenisLock();
     input.value = '';
     render('');
     input.focus();
@@ -498,6 +554,7 @@ const tocLinks = [];
   function close() {
     overlay.classList.remove('open');
     document.body.classList.remove('search-open');
+    syncLenisLock();
   }
 
   $$('.js-search').forEach((btn) => btn.addEventListener('click', open));

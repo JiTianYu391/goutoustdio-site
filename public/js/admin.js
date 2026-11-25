@@ -52,12 +52,13 @@
   /* ---------- 用户 ---------- */
   views.users = function () {
     var wrap = el("div", { class: "box table-wrap" });
-    root.append(searchBar("搜索用户名、昵称或邮箱", load), wrap);
+    root.append(searchBar("搜索用户名、昵称、邮箱或 4 位考号", load), wrap);
     function load(q) {
       GS.api("GET", "/api/admin/users?q=" + encodeURIComponent(q || "")).then(function (d) {
         var tb = el("tbody");
         d.users.forEach(function (u) {
           var flags = el("div", { class: "row" },
+            u.examNo ? label("考号 " + u.examNo, "accent") : null,
             u.role === "admin" ? label("管理员", "accent") : null,
             u.banned ? label("已封禁", "danger") : null,
             u.emailVerified ? null : label("未验证", "attention"),
@@ -74,7 +75,7 @@
           tb.append(el("tr", null,
             el("td", null, el("div", { class: "user-cell" }, GS.avatar(u.username),
               el("div", null, el("a", { href: "/u/" + encodeURIComponent(u.username), style: "font-weight:600", text: u.displayName || u.username }),
-                el("div", { class: "small muted", text: "@" + u.username + " · " + u.email })))),
+                el("div", { class: "small muted", text: "@" + u.username + " · " + u.email + (u.department ? " · " + u.department : "") })))),
             el("td", null, flags, u.banned && u.banReason ? el("div", { class: "small muted", text: u.banReason }) : null),
             el("td", { text: String(u.comments) }),
             el("td", { class: "small muted", text: u.lastSeen ? GS.ago(u.lastSeen) : "—" }),

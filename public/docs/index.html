@@ -10,9 +10,9 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/docs/docs.css">
-<script>try{var t=localStorage.getItem('pg-theme');document.documentElement.dataset.theme=t==='light'?'light':'dark';}catch(e){}</script>
 </head>
 <body class="doc" data-page="index">
+<script src="/js/theme-init.js"></script>
 <header class="doc-header" id="docHeader"></header>
 <div class="doc-scrim" id="docScrim"></div>
 <div class="doc-shell">
@@ -22,13 +22,74 @@
   </aside>
   <main class="doc-main">
     <article class="doc-article">
-      <h1>快速开始</h1>
-      <p class="lede">不用自己写注册、找回密码和支付。把 <b>登录</b> 交给 GoutouStdio 账号，把 <b>充值</b> 交给 SpacePay，你的游戏只需要保存一个稳定的用户 ID，然后等回调发货。</p>
+      <div class="doc-hero">
+        <div class="doc-hero-copy">
+          <p class="doc-hero-badge">开放平台 · OAuth 2.0 + SpacePay</p>
+          <h1>把游戏接入 <span class="grad">GoutouStdio</span>。</h1>
+          <p class="lede">不用自己写注册、找回密码和支付。把 <b>登录</b> 交给 GoutouStdio 账号，把 <b>充值</b> 交给 SpacePay，你的游戏只需要保存一个稳定的用户 ID，然后等回调发货。</p>
+          <div class="actions">
+            <a class="button" href="#register">快速开始接入</a>
+            <a class="button button-secondary" href="/docs/oauth">账号登录文档</a>
+            <a class="button button-secondary" href="https://pay.goutoustdio.top/merchant" rel="noopener">支付控制台</a>
+          </div>
+        </div>
+        <figure class="hero-art-svg">
+          <svg class="art" viewBox="0 0 460 390" role="img" aria-label="三层架构示意图：第三方游戏或应用通过 OAuth 2.0 授权获取用户身份，再通过 SpacePay 商户 API 完成扫码充值与 Webhook 发货">
+            <rect class="art-l1" x="24" y="18" width="412" height="90" rx="18"/>
+            <text x="50" y="54" font-size="21" font-weight="700">你的游戏 / 应用</text>
+            <text class="art-sub" x="50" y="84" font-size="14">客户端 · 网页游戏 · 游戏后端</text>
+            <g class="art-ico" transform="translate(376,38)">
+              <rect x="2" y="4" width="32" height="24" rx="4"/>
+              <path d="M11 12l5 4-5 4M19 20h7"/>
+            </g>
+
+            <path class="art-brand" d="M358 114v24M350 122l8-8 8 8M350 130l8 8 8-8"/>
+            <text class="art-note" x="376" y="131" font-size="13">OAuth 2.0 + PKCE</text>
+
+            <rect class="art-l2" x="24" y="146" width="412" height="90" rx="18"/>
+            <text x="50" y="182" font-size="21" font-weight="700">GoutouStdio 账号中心</text>
+            <text class="art-sub" x="50" y="212" font-size="14">统一授权登录 · 返回稳定 sub 标识</text>
+            <g class="art-ico" transform="translate(376,166)">
+              <path d="M18 3l12 4.5v9c0 7-5 12-12 15-7-3-12-8-12-15v-9z"/>
+              <path d="M12.5 16l4 4 7-7"/>
+            </g>
+
+            <path class="art-brand" d="M358 242v24M350 250l8-8 8 8M350 258l8 8 8-8"/>
+            <text class="art-note" x="376" y="259" font-size="13">扫码充值 &amp; Webhook</text>
+
+            <rect class="art-l3" x="24" y="274" width="412" height="90" rx="18"/>
+            <text x="50" y="310" font-size="21" font-weight="700">SpacePay 商户收款</text>
+            <text class="art-sub" x="50" y="340" font-size="14">二维码收款页 · HMAC-SHA256 验签发货</text>
+            <g class="art-ico" transform="translate(376,294)">
+              <rect x="4" y="4" width="11" height="11" rx="2"/>
+              <rect x="21" y="4" width="11" height="11" rx="2"/>
+              <rect x="4" y="21" width="11" height="11" rx="2"/>
+              <path d="M21 21h4v4h-4zM28 21h4v11h-11v-4"/>
+            </g>
+          </svg>
+          <figcaption>三步完成闭环：注册应用 → OAuth 授权登录 → SpacePay 回调发货。</figcaption>
+        </figure>
+      </div>
 
       <div class="cards">
-        <div class="card"><b>GoutouStdio 账号</b><p>OAuth 2.0 授权码 + PKCE。玩家在你的游戏里点「使用 GoutouStdio 登录」，授权后拿到 <code>sub</code> 和公开资料。</p></div>
-        <div class="card"><b>SpacePay 充值</b><p>商户 API 创建支付单，把 <code>checkout_url</code> 交给玩家。付款成功通过 Webhook 通知你的服务器。</p></div>
-        <div class="card"><b>两份凭据</b><p>应用拿 <code>client_id</code>（公共客户端无密钥）；收款拿 <code>sp_live_…</code> API Key，只放服务端。</p></div>
+        <div class="card tile-clay">
+          <span class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l7 2.5v5.5c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6z"/><path d="M8.8 12l2.4 2.4 4-4.4"/></svg></span>
+          <b>GoutouStdio 账号</b>
+          <p>OAuth 2.0 授权码 + PKCE。玩家在你的游戏里点「使用 GoutouStdio 登录」，授权后拿到 <code>sub</code> 和公开资料。</p>
+          <a class="card-link" href="/docs/oauth">查看 OAuth 接入 →</a>
+        </div>
+        <div class="card tile-sky">
+          <span class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5v5M15 3.5v5M6.5 8.5h11v3.5a5.5 5.5 0 0 1-11 0zM12 17.5v3"/></svg></span>
+          <b>SpacePay 充值</b>
+          <p>商户 API 创建支付单，把 <code>checkout_url</code> 交给玩家。付款成功通过 Webhook 通知你的服务器。</p>
+          <a class="card-link" href="/docs/recharge">查看充值订单 →</a>
+        </div>
+        <div class="card tile-sage">
+          <span class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/></svg></span>
+          <b>两份凭据</b>
+          <p>应用拿 <code>client_id</code>（公共客户端无密钥）；收款拿 <code>sp_live_…</code> API Key，只放服务端。</p>
+          <a class="card-link" href="/docs/example">运行完整示例 →</a>
+        </div>
       </div>
 
       <h2 id="services">两个服务</h2>
@@ -155,6 +216,11 @@ const { payment } = await r.json();
     </article>
   </main>
 </div>
+<script src="/js/vendor/gsap.min.js"></script>
+<script src="/js/vendor/ScrollTrigger.min.js"></script>
+<script src="/js/vendor/SplitText.min.js"></script>
+<script src="/js/vendor/lenis.min.js"></script>
 <script src="/docs/docs.js"></script>
+<script src="/docs/docs-motion.js"></script>
 </body>
 </html>

@@ -9,6 +9,7 @@ export const str = (v) => (typeof v === "string" ? v : "");
 export const USER_RE = /^[A-Za-z0-9_一-龥-]{2,24}$/;
 export const MAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 export const PAGE_RE = /^[a-z0-9-]{1,40}$/;
+export const EXAM_NO_RE = /^\d{4}$/;
 export const TOPICS = { pyspos: "PySpOS 版本更新", spaceos: "SpaceOS 版本更新", announce: "站点公告", replies: "有人回复我的评论" };
 
 /** 站点地址：邮件链接、Passkey 的 origin / rpID 都以它为准 */
@@ -29,17 +30,19 @@ export const needSudo = (req, res, next) =>
 export const getUser = (id) => db.prepare("SELECT * FROM users WHERE id=?").get(id);
 export const pubUser = (u) => ({
   id: u.id, username: u.username, email: u.email, role: u.role, displayName: u.display_name || "", bio: u.bio || "",
+  examNo: u.exam_no || "", department: u.department || "",
   emailVerified: !!u.email_verified, twoFactor: !!u.totp_secret, createdAt: u.created_at,
 });
 /** 公开信息：不含邮箱 */
 export const publicUser = (u) => ({ username: u.username, displayName: u.display_name || "", bio: u.bio || "", admin: u.role === "admin", createdAt: u.created_at });
 
-/** 管理员 = 邮箱等于 ADMIN_EMAIL 且已验证；条件不满足时自动降级 */
+/** 管理员 = 邮箱等于 ADMIN_EMAIL 且已验证，或后台手动授权的管理员（admin_manual=1）；条件不满足时自动降级 */
 export function syncAdmin(userId) {
   const want = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
-  const u = db.prepare("SELECT email, email_verified, role FROM users WHERE id=?").get(userId);
+  const u = db.prepare("SELECT email, email_verified, role, admin_manual FROM users WHERE id=?").get(userId);
   if (!u) return;
-  const role = want && u.email.toLowerCase() === want && u.email_verified ? "admin" : "user";
+  const byEnv = !!(want && u.email.toLowerCase() === want && u.email_verified);
+  const role = (byEnv || u.admin_manual) ? "admin" : "user";
   if (role !== u.role) db.prepare("UPDATE users SET role=? WHERE id=?").run(role, userId);
 }
 

@@ -35,6 +35,17 @@
     var name = user.displayName || user.username;
     $("#head-avatar").replaceChildren(GS.avatar(user.username, "avatar-lg"));
     $("#head-name").textContent = name + (user.displayName ? "（" + user.username + "）" : "");
+    var subEl = $("#head-sub");
+    if (subEl) {
+      subEl.textContent = "";
+      if (user.examNo) {
+        subEl.append(label("考号 " + user.examNo, "accent"), user.department ? " · " + user.department : " · 内部考试认证成员");
+      } else {
+        subEl.textContent = user.department ? "部门：" + user.department : "你的个人账号";
+      }
+    }
+    var examBtn = $("#exam-entry");
+    if (examBtn) examBtn.hidden = !user.examNo && user.role !== "admin";
     $("#view-profile").href = "/u/" + encodeURIComponent(user.username);
     $("#nav-admin").hidden = user.role !== "admin";
     $("#displayName").value = user.displayName; $("#bio").value = user.bio; $("#bio-count").textContent = user.bio.length;

@@ -33,8 +33,9 @@ r.get("/users", (req, res) => {
   const q = `%${str(req.query.q).trim()}%`;
   const users = db.prepare(`SELECT u.*, (SELECT COUNT(*) FROM comments c WHERE c.user_id=u.id) AS comments,
       (SELECT MAX(last_seen) FROM sessions s WHERE s.user_id=u.id) AS last_seen
-    FROM users u WHERE u.username LIKE ? OR u.email LIKE ? OR u.display_name LIKE ? ORDER BY u.id DESC LIMIT 200`).all(q, q, q);
+    FROM users u WHERE u.username LIKE ? OR u.email LIKE ? OR u.display_name LIKE ? OR u.exam_no LIKE ? ORDER BY u.id DESC LIMIT 200`).all(q, q, q, q);
   res.json({ users: users.map((u) => ({ id: u.id, username: u.username, displayName: u.display_name, email: u.email, role: u.role,
+    examNo: u.exam_no || "", department: u.department || "",
     emailVerified: !!u.email_verified, banned: !!u.banned, banReason: u.ban_reason, twoFactor: !!u.totp_secret,
     comments: u.comments, lastSeen: u.last_seen, createdAt: u.created_at })) });
 });

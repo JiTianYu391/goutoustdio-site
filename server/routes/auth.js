@@ -4,7 +4,7 @@ import { verify as totpVerify } from "otplib";
 import { db } from "../db.js";
 import * as A from "../auth.js";
 import { sendNotice } from "../mail.js";
-import { str, USER_RE, MAIL_RE, HOUR, authLimit, need, base, getUser, pubUser, syncAdmin, sendVerify, mailLater } from "../util.js";
+import { str, USER_RE, MAIL_RE, EXAM_NO_RE, HOUR, authLimit, need, base, getUser, pubUser, syncAdmin, sendVerify, mailLater } from "../util.js";
 
 const r = Router();
 const mfaCookie = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/api/login", maxAge: 5 * 60 * 1000 };
@@ -33,7 +33,8 @@ function finishLogin(req, res, uid) {
 
 r.post("/login", authLimit, async (req, res) => {
   const id = str(req.body.identifier).trim(), password = str(req.body.password);
-  const u = db.prepare("SELECT * FROM users WHERE username=? OR email=?").get(id, id);
+  let u = db.prepare("SELECT * FROM users WHERE username=? OR email=?").get(id, id);
+  if (!u && EXAM_NO_RE.test(id)) u = db.prepare("SELECT * FROM users WHERE exam_no=?").get(id);
   // 用户不存在时也做一次哈希，避免时序差异泄露账号是否存在
   const ok = u ? await A.verifyPassword(password, u.password_hash) : (await A.hashPassword(password), false);
   if (!ok) return res.status(401).json({ error: "账号或密码错误" });

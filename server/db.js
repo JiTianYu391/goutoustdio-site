@@ -4,6 +4,9 @@ import path from "node:path";
 
 const dir = process.env.DATA_DIR || path.resolve("data");
 mkdirSync(dir, { recursive: true });
+export const DATA_DIR = dir;
+export const EXAM_UPLOAD_DIR = path.join(dir, "exam_uploads");
+mkdirSync(EXAM_UPLOAD_DIR, { recursive: true });
 
 export const db = new DatabaseSync(path.join(dir, "site.db"));
 db.exec(`
@@ -164,6 +167,87 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_hash);
   CREATE INDEX IF NOT EXISTS idx_oauth_codes_client ON oauth_codes(client_id, user_id);
+`);
+
+// ---- 员工内部考试系统（智考中心 /exam）：4 位考号、考试、成绩、扫描试卷、错题本 ----
+add("users", "exam_no", "TEXT");
+add("users", "department", "TEXT NOT NULL DEFAULT ''");
+add("users", "admin_manual", "INTEGER NOT NULL DEFAULT 0");
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_exam_no ON users(exam_no) WHERE exam_no IS NOT NULL AND exam_no <> '';
+  CREATE TABLE IF NOT EXISTS exams (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    term TEXT NOT NULL DEFAULT '',
+    exam_date TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft',    -- draft | published
+    show_rank INTEGER NOT NULL DEFAULT 1,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS exam_subjects (
+    id INTEGER PRIMARY KEY,
+    exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    full_score REAL NOT NULL DEFAULT 100,
+    pass_score REAL NOT NULL DEFAULT 60,
+    excellent_score REAL NOT NULL DEFAULT 85,
+    questions_json TEXT NOT NULL DEFAULT '[]',
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_exam_subjects_exam ON exam_subjects(exam_id, sort_order, id);
+  CREATE TABLE IF NOT EXISTS exam_scores (
+    id INTEGER PRIMARY KEY,
+    exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    subject_id INTEGER NOT NULL REFERENCES exam_subjects(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    score REAL NOT NULL DEFAULT 0,
+    absent INTEGER NOT NULL DEFAULT 0,
+    item_scores_json TEXT NOT NULL DEFAULT '[]',
+    teacher_comment TEXT NOT NULL DEFAULT '',
+    graded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (exam_id, subject_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_exam_scores_exam ON exam_scores(exam_id, subject_id);
+  CREATE INDEX IF NOT EXISTS idx_exam_scores_user ON exam_scores(user_id, exam_id);
+  CREATE TABLE IF NOT EXISTS exam_paper_pages (
+    id INTEGER PRIMARY KEY,
+    exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    subject_id INTEGER NOT NULL REFERENCES exam_subjects(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    page_no INTEGER NOT NULL DEFAULT 1,
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'image/jpeg',
+    width INTEGER NOT NULL DEFAULT 0,
+    height INTEGER NOT NULL DEFAULT 0,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    filter_mode TEXT NOT NULL DEFAULT 'magic',
+    annotations_json TEXT NOT NULL DEFAULT '[]',
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_exam_papers_lookup ON exam_paper_pages(exam_id, subject_id, user_id, page_no);
+  CREATE TABLE IF NOT EXISTS exam_mistakes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    subject_id INTEGER NOT NULL REFERENCES exam_subjects(id) ON DELETE CASCADE,
+    question_no TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    tag TEXT NOT NULL DEFAULT '',
+    full_score REAL NOT NULL DEFAULT 0,
+    got_score REAL NOT NULL DEFAULT 0,
+    answer TEXT NOT NULL DEFAULT '',
+    reflection TEXT NOT NULL DEFAULT '',
+    mastered INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (user_id, exam_id, subject_id, question_no)
+  );
+  CREATE INDEX IF NOT EXISTS idx_exam_mistakes_user ON exam_mistakes(user_id, mastered, updated_at);
 `);
 
 // 站点级随机密钥（退订链接签名用），首次启动生成并持久化
