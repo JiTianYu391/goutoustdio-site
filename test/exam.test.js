@@ -506,3 +506,120 @@ test("智考中心与开放平台文档路由返回 200 且无内联 script", as
     assert.equal(inlineScripts.length, 0, `${route} 不应包含内联 script`);
   }
 });
+
+test("智考中心独立账密登录、并发会话隔离、无邮箱纯智考账号与退出解绑全流程", async () => {
+  const applyCookies = (jar, res) => {
+    const map = new Map();
+    for (const part of String(jar || "").split(/;\s*/).filter(Boolean)) {
+      const idx = part.indexOf("=");
+      if (idx > 0) map.set(part.slice(0, idx), part.slice(idx + 1));
+    }
+    for (const sc of res.headers.getSetCookie()) {
+      const segs = sc.split(";").map((s) => s.trim());
+      const [nv] = segs;
+      const eq = nv.indexOf("=");
+      if (eq <= 0) continue;
+      const k = nv.slice(0, eq);
+      const v = nv.slice(eq + 1);
+      const cleared = !v || segs.some((s) => /^max-age=0$/i.test(s) || /1970/.test(s));
+      if (cleared) map.delete(k);
+      else map.set(k, v);
+    }
+    return [...map.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+  };
+
+  // 1. 管理员创建无邮箱（纯智考中心）账号，自动生成占位邮箱
+  const pureRes = await api("POST", "/api/exam/admin/users", {
+    username: "exam_only_stu",
+    displayName: "纯智考学员",
+    password: "init_pass_88",
+    examNo: "0921",
+    department: "软件部",
+  }, adminCookie);
+  assert.equal(pureRes.status, 201);
+  assert.equal(pureRes.json.user.username, "exam_only_stu");
+  assert.match(pureRes.json.user.email, /@exam\.goutoustdio\.top$/);
+  const pureId = pureRes.json.user.id;
+
+  // 2. 不带主站账号：直接用独立接口用户名 + 初始密码登录 /exam
+  const pubLogin = await api("POST", "/api/exam/public/login", {
+    username: "exam_only_stu",
+    password: "init_pass_88",
+  });
+  assert.equal(pubLogin.status, 200);
+  assert.equal(pubLogin.json.authMode, "exam");
+  assert.equal(pubLogin.json.user.id, pureId);
+  const soloJar = applyCookies("", pubLogin);
+  assert.match(soloJar, /gs_exam_session=/);
+  assert.doesNotMatch(soloJar, /gs_session=/);
+
+  // 主站 /api/me 仍为未登录 (null)，而 /api/exam/me 已正常识别考生
+  const mainMe = await api("GET", "/api/me", undefined, soloJar);
+  assert.equal(mainMe.json.user, null);
+  const soloExamMe = await api("GET", "/api/exam/me", undefined, soloJar);
+  assert.equal(soloExamMe.status, 200);
+  assert.equal(soloExamMe.json.user.id, pureId);
+  const soloList = await api("GET", "/api/exam/list", undefined, soloJar);
+  assert.equal(soloList.status, 200);
+
+  // 3. 并发隔离：浏览器同时登录主站管理员 (gs_session) + 智考独立普通考生 (gs_exam_session)
+  let mixedJar = applyCookies(adminCookie, pubLogin);
+  const mixedSiteMe = await api("GET", "/api/me", undefined, mixedJar);
+  assert.equal(mixedSiteMe.json.user.role, "admin", "主站仍保持管理员身份");
+  const mixedSession = await api("GET", "/api/exam/public/session", undefined, mixedJar);
+  assert.equal(mixedSession.json.user.id, pureId);
+  assert.equal(mixedSession.json.siteUser.role, "admin");
+  assert.equal(mixedSession.json.authMode, "exam");
+
+  // 即使主站是管理员，智考内当前身份为普通学生 -> 严禁调用任何管理员扫卷/批改/改分接口
+  for (const [method, url, body] of [
+    ["GET", "/api/exam/admin/users"],
+    ["POST", "/api/exam/admin/smart-scan-grade", { examId: 1, subjectId: 1, images: [{ imageData: VALID_JPEG_DATA_URL }] }],
+    ["POST", "/api/exam/admin/ai-grade", { examId: 1, subjectId: 1, userId: pureId }],
+    ["PUT", "/api/exam/admin/exams/1/scores", { userId: pureId, subjectId: 1, score: 100 }],
+    ["POST", "/api/exam/admin/papers", { examId: 1, subjectId: 1, userId: pureId, imageData: VALID_JPEG_DATA_URL }],
+  ]) {
+    const r = await api(method, url, body, mixedJar);
+    assert.equal(r.status, 403, `普通独立考生不应访问 ${method} ${url}`);
+  }
+
+  // 非管理员尝试发送 >64KB JSON 载荷至上传路由应在 body 解析阶段即被拒 (413)
+  const hugeImg = "data:image/jpeg;base64," + "A".repeat(80 * 1024);
+  const hugeRes = await api("POST", "/api/exam/admin/smart-scan-grade", {
+    examId: 1, subjectId: 1, images: [{ imageData: hugeImg }],
+  }, mixedJar);
+  assert.equal(hugeRes.status, 413);
+
+  // 4. 在保留主站登录前提下点击退出智考中心 -> 置 gs_exam_detached=1，/exam/me 返回 401，主站 /api/me 仍保持管理员
+  const examLogout = await api("POST", "/api/exam/public/logout", {}, mixedJar);
+  assert.equal(examLogout.status, 200);
+  assert.equal(examLogout.json.siteStillLoggedIn, true);
+  mixedJar = applyCookies(mixedJar, examLogout);
+  assert.match(mixedJar, /gs_exam_detached=1/);
+
+  const afterLogoutExamMe = await api("GET", "/api/exam/me", undefined, mixedJar);
+  assert.equal(afterLogoutExamMe.status, 401);
+  const afterLogoutSiteMe = await api("GET", "/api/me", undefined, mixedJar);
+  assert.equal(afterLogoutSiteMe.json.user.role, "admin");
+
+  // 5. 一键切回主站管理员账号 -> 恢复使用 gs_session
+  const useSite = await api("POST", "/api/exam/public/use-site-account", {}, mixedJar);
+  assert.equal(useSite.status, 200);
+  assert.equal(useSite.json.authMode, "site");
+  assert.equal(useSite.json.user.role, "admin");
+  mixedJar = applyCookies(mixedJar, useSite);
+  assert.doesNotMatch(mixedJar, /gs_exam_detached=/);
+  const backAdminExam = await api("GET", "/api/exam/admin/users", undefined, mixedJar);
+  assert.equal(backAdminExam.status, 200);
+
+  // 6. alsoSite: true 同步退出智考与主站（用临时主站会话验证以免清掉全局 adminCookie 会话）
+  const siteLogin2 = await api("POST", "/api/login", { identifier: "admin@goutoustdio.top", password: "admin-password-123" });
+  assert.equal(siteLogin2.status, 200);
+  let bothJar = applyCookies("", siteLogin2);
+  const bothOut = await api("POST", "/api/exam/public/logout", { alsoSite: true }, bothJar);
+  assert.equal(bothOut.status, 200);
+  assert.equal(bothOut.json.siteStillLoggedIn, false);
+  bothJar = applyCookies(bothJar, bothOut);
+  const meGone = await api("GET", "/api/me", undefined, bothJar);
+  assert.equal(meGone.json.user, null);
+});

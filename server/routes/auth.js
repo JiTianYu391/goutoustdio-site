@@ -26,6 +26,9 @@ r.post("/register", authLimit, async (req, res) => {
 
 function finishLogin(req, res, uid) {
   syncAdmin(uid);
+  A.destroySession(req.cookies?.[A.EXAM_COOKIE]);
+  A.clearExamCookie(res);
+  A.setExamDetachedCookie(res, false);
   A.setCookie(res, A.createSession(uid, req));
   res.clearCookie(A.MFA_COOKIE, { path: "/api/login" });
   res.json({ user: pubUser(getUser(uid)) });
@@ -66,8 +69,11 @@ r.post("/login/2fa", authLimit, async (req, res) => {
 });
 
 r.post("/logout", (req, res) => {
-  A.destroySession(req.cookies[A.COOKIE]);
+  A.destroySession(req.cookies?.[A.COOKIE]);
+  A.destroySession(req.cookies?.[A.EXAM_COOKIE]);
   res.clearCookie(A.COOKIE, { path: "/" });
+  A.clearExamCookie(res);
+  A.setExamDetachedCookie(res, false);
   res.json({ ok: true });
 });
 

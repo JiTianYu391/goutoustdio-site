@@ -7,6 +7,8 @@ import { db } from "./db.js";
 const scrypt = promisify(crypto.scrypt);
 const SESSION_MS = 30 * 24 * 3600 * 1000;
 export const COOKIE = "gs_session";
+export const EXAM_COOKIE = "gs_exam_session";
+export const EXAM_DETACHED_COOKIE = "gs_exam_detached";
 
 export async function hashPassword(pw) {
   const salt = crypto.randomBytes(16);
@@ -60,6 +62,19 @@ export function setCookie(res, token) {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production",
     maxAge: SESSION_MS, path: "/",
   });
+}
+const examCookieBase = () => ({
+  httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/",
+});
+export function setExamCookie(res, token) {
+  res.cookie(EXAM_COOKIE, token, { ...examCookieBase(), maxAge: SESSION_MS });
+}
+export function clearExamCookie(res) {
+  res.clearCookie(EXAM_COOKIE, examCookieBase());
+}
+export function setExamDetachedCookie(res, on) {
+  if (on) res.cookie(EXAM_DETACHED_COOKIE, "1", { ...examCookieBase(), maxAge: SESSION_MS });
+  else res.clearCookie(EXAM_DETACHED_COOKIE, examCookieBase());
 }
 export function createEmailToken(userId, kind, ttlMs) {
   const token = crypto.randomBytes(32).toString("base64url");

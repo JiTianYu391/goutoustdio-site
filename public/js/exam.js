@@ -22,6 +22,9 @@
 
   var state = {
     me: null,
+    siteUser: null,
+    authMode: "none",
+    publicConfig: null,
     examMe: null,
     exams: [],
     selectedExamId: 0,
@@ -110,11 +113,96 @@
     b.addEventListener("click", function () { switchTab(b.dataset.tab); });
   });
 
-  /* ---------- 1. 顶部紧凑用户状态条 ---------- */
+  /* ---------- 1. 顶部紧凑用户状态条 + 独立登录 / 切换 / 退出 ---------- */
+  function logoutExam() {
+    GS.api("POST", "/api/exam/public/logout", {}).then(function () {
+      state.me = null;
+      state.examMe = null;
+      state.exams = [];
+      state.previewUserQuery = null;
+      state.scoringUserId = 0;
+      GS.toast("已退出智考中心");
+      loadExamSession();
+    }).catch(fail);
+  }
+
+  function openSwitchAccountModal() {
+    var dlg = el("dialog", { class: "ui-dialog ui", style: "width:min(100% - 1.5rem, 27rem)", "aria-label": "切换智考账号" });
+    dlg.setAttribute("data-lenis-prevent", "");
+
+    var idInp = el("input", { type: "text", placeholder: "输入用户名 / 4 位考号（如 0413）", autocomplete: "username", required: true });
+    var pwInp = el("input", { type: "password", placeholder: "输入初始密码或登录密码", autocomplete: "current-password", required: true });
+    var submitBtn = el("button", { type: "submit", class: "btn btn-primary", text: "登录切换" });
+    var cancelBtn = el("button", { type: "button", class: "btn", text: "取消" });
+
+    var formBody = el("div", { class: "dialog-body", style: "display:grid;gap:.85rem" },
+      el("p", { class: "small muted", style: "margin:0", text: "无需退出 GoutouStdio 主站，可直接用智考中心用户名或 4 位考号与初始密码单独登录。" }),
+      el("div", { class: "field" }, el("label", { text: "用户名 / 4 位考号 / 邮箱" }), idInp),
+      el("div", { class: "field", style: "margin-top:0" }, el("label", { text: "密码" }), pwInp),
+    );
+
+    if (state.siteUser && (!state.me || state.siteUser.id !== state.me.id)) {
+      var siteName = state.siteUser.displayName || state.siteUser.username;
+      var useSiteBtn = el("button", {
+        type: "button",
+        class: "btn btn-sm",
+        text: "切回主站账号：" + siteName,
+        onclick: function () {
+          var done = GS.busy(useSiteBtn, "切换中…");
+          GS.api("POST", "/api/exam/public/use-site-account", {}).then(function () {
+            close();
+            GS.toast("已切回主站账号「" + siteName + "」");
+            loadExamSession();
+          }).catch(function (err) {
+            done();
+            GS.flash(formBody, (err && err.message) || "切换失败");
+          });
+        },
+      });
+      formBody.append(el("div", { class: "exam-site-acct-box" },
+        el("span", { class: "small muted", text: "当前主站已登录 GoutouStdio 账号：" + siteName + (state.siteUser.examNo ? "（考号 " + state.siteUser.examNo + "）" : "") }),
+        el("div", { class: "row" }, useSiteBtn),
+      ));
+    }
+
+    var form = el("form", { style: "display:contents" },
+      formBody,
+      el("footer", null, cancelBtn, submitBtn),
+    );
+    dlg.append(
+      el("header", null, icon("people"), el("span", { class: "grow", text: "切换智考中心账号" })),
+      form,
+    );
+    document.body.appendChild(dlg);
+    function close() { dlg.close(); dlg.remove(); }
+    cancelBtn.addEventListener("click", close);
+    dlg.addEventListener("cancel", function (e) { e.preventDefault(); close(); });
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var done = GS.busy(submitBtn, "登录中…");
+      GS.api("POST", "/api/exam/public/login", { identifier: idInp.value.trim(), password: pwInp.value }).then(function (r) {
+        if (r && r.mfa === "totp") {
+          location.href = "/login?next=/exam";
+          return;
+        }
+        close();
+        GS.toast("已切换智考中心账号");
+        loadExamSession();
+      }).catch(function (err) {
+        done();
+        GS.flash(formBody, (err && err.message) || "登录失败");
+      });
+    });
+
+    dlg.showModal();
+    idInp.focus();
+  }
+
   function renderIdCard() {
     idCard.textContent = "";
-    if (!state.me) {
-      idCard.append(el("span", { class: "small muted", text: "未登录 · 支持 4 位考号直登或自动领取考号" }));
+    if (!state.me || !state.examMe) {
+      idCard.append(el("span", { class: "small muted", text: "未登录 · 支持用户名 / 4 位考号与初始密码直登" }));
       return;
     }
     var u = state.examMe.user;
@@ -126,11 +214,16 @@
         el("span", { class: "exam-no-pill", text: u.examNo ? "考号 " + u.examNo : "未分配考号" }),
         u.department ? el("span", { text: u.department }) : null,
         u.role === "admin" ? label("管理员", "accent") : null,
+        state.authMode === "exam" ? label("独立登录") : null,
       ),
       el("span", {
         class: "exam-user-stat",
         text: "参考 " + st.examCount + " 场 · 均率 " + (st.examCount ? st.avgRate + "%" : "—") + " · 待巩固 " + st.mistakePending,
       }),
+      el("div", { class: "exam-user-actions" },
+        el("button", { type: "button", class: "btn btn-sm", text: "切换账号", onclick: openSwitchAccountModal }),
+        el("button", { type: "button", class: "btn btn-sm", onclick: logoutExam }, icon("signout"), "退出登录"),
+      ),
     );
     if (st.mistakePending > 0) {
       mistakeBadge.textContent = String(st.mistakePending);
@@ -141,9 +234,11 @@
   }
 
   /* ---------- 1b. 未登录极简居中认证与自动考号领取卡片 ---------- */
-  function renderGuestAuth() {
+  function renderGuestAuth(cfgOverride) {
     shell.classList.add("is-guest");
     sidebar.hidden = true;
+    adminNav.hidden = true;
+    mistakeBadge.hidden = true;
     root.textContent = "";
 
     var wrap = el("div", { class: "exam-auth-wrap" });
@@ -151,11 +246,18 @@
     wrap.append(card);
     root.append(wrap);
 
-    GS.api("GET", "/api/exam/public/config").catch(function () {
-      return { departments: OFFICIAL_DEPTS, selfRegisterEnabled: true };
-    }).then(function (cfg) {
+    var cfgPromise = cfgOverride
+      ? Promise.resolve(cfgOverride)
+      : (state.publicConfig
+        ? Promise.resolve(state.publicConfig)
+        : GS.api("GET", "/api/exam/public/session").catch(function () {
+          return { departments: OFFICIAL_DEPTS, selfRegisterEnabled: true, siteUser: state.siteUser };
+        }));
+
+    cfgPromise.then(function (cfg) {
       var depts = (cfg && Array.isArray(cfg.departments) && cfg.departments.length) ? cfg.departments : OFFICIAL_DEPTS;
       var canSelfReg = !cfg || cfg.selfRegisterEnabled !== false;
+      var siteUser = (cfg && cfg.siteUser !== undefined) ? cfg.siteUser : state.siteUser;
       var mode = "login"; // login | register
 
       function draw() {
@@ -166,7 +268,9 @@
             el("p", {
               class: "small muted",
               style: "margin:.25rem 0 0",
-              text: canSelfReg ? "使用 4 位考号登录，或填写姓名与部门自动领取专属考号" : "请使用成员账号或管理员分配的 4 位考号登录",
+              text: canSelfReg
+                ? "无需绑定 GoutouStdio 账号，直接输入用户名或 4 位考号与初始密码即可登录，也可自助领取专属考号"
+                : "无需绑定 GoutouStdio 账号，直接输入用户名或 4 位考号与初始密码即可登录",
             }),
           ),
         );
@@ -176,7 +280,7 @@
             el("button", {
               type: "button",
               class: mode === "login" ? "is-active" : "",
-              text: "考号 / 账号登录",
+              text: "用户名 / 考号登录",
               onclick: function () { mode = "login"; draw(); },
             }),
             el("button", {
@@ -189,30 +293,71 @@
         }
 
         if (mode === "login") {
-          var idInp = el("input", { type: "text", placeholder: "输入 4 位考号（如 0413）/ 用户名 / 邮箱", autocomplete: "username", required: true });
-          var pwInp = el("input", { type: "password", placeholder: "初始密码默认与 4 位考号相同", autocomplete: "current-password", required: true });
+          var idInp = el("input", { type: "text", placeholder: "输入用户名或 4 位考号（如 0413）", autocomplete: "username", required: true });
+          var pwInp = el("input", { type: "password", placeholder: "输入初始密码或登录密码（自动注册默认同考号）", autocomplete: "current-password", required: true });
           var subBtn = el("button", { type: "submit", class: "btn btn-primary btn-block", text: "登录智考中心" });
           var form = el("form", { style: "display:grid;gap:.85rem" },
-            el("div", { class: "field" }, el("label", { text: "4 位考号 / 用户名 / 邮箱" }), idInp),
+            el("div", { class: "field" }, el("label", { text: "用户名 / 4 位考号 / 邮箱" }), idInp),
             el("div", { class: "field", style: "margin-top:0" }, el("label", { text: "密码" }), pwInp),
             subBtn,
           );
           form.addEventListener("submit", function (e) {
             e.preventDefault();
             var done = GS.busy(subBtn, "登录中…");
-            GS.api("POST", "/api/login", { identifier: idInp.value.trim(), password: pwInp.value }).then(function (r) {
+            GS.api("POST", "/api/exam/public/login", { identifier: idInp.value.trim(), password: pwInp.value }).then(function (r) {
               if (r && r.mfa === "totp") {
                 location.href = "/login?next=/exam";
               } else {
-                location.reload();
+                GS.toast("欢迎进入智考中心");
+                loadExamSession();
               }
             }).catch(function (err) {
               done();
               GS.flash(form, (err && err.message) || "登录失败");
             });
           });
+          card.append(form);
+
+          if (siteUser) {
+            var siteLabel = siteUser.displayName || siteUser.username;
+            var enterSiteBtn = el("button", {
+              type: "button",
+              class: "btn btn-sm btn-primary",
+              text: "用 " + siteLabel + " 一键进入",
+              onclick: function () {
+                var done = GS.busy(enterSiteBtn, "进入中…");
+                GS.api("POST", "/api/exam/public/use-site-account", {}).then(function () {
+                  loadExamSession();
+                }).catch(function (err) {
+                  done();
+                  fail(err);
+                });
+              },
+            });
+            var exitSiteBtn = el("button", {
+              type: "button",
+              class: "btn btn-sm",
+              text: "退出主站账号",
+              onclick: function () {
+                var done = GS.busy(exitSiteBtn, "退出中…");
+                GS.api("POST", "/api/exam/public/logout", { alsoSite: true }).then(function () {
+                  location.reload();
+                }).catch(function (err) {
+                  done();
+                  fail(err);
+                });
+              },
+            });
+            card.append(el("div", { class: "exam-site-acct-box" },
+              el("div", {
+                class: "small muted",
+                text: "当前浏览器已登录 GoutouStdio 账号：" + siteLabel + (siteUser.examNo ? "（考号 " + siteUser.examNo + "）" : ""),
+              }),
+              el("div", { class: "row" }, enterSiteBtn, exitSiteBtn),
+            ));
+          }
+
           card.append(
-            form,
             el("div", { class: "small muted", style: "text-align:center" },
               el("a", { href: "/login?next=/exam", text: "使用 Passkey / 两步验证完整登录页 →" }),
             ),
@@ -279,7 +424,7 @@
               ),
               el("div", { class: "row", style: "justify-content:space-between" },
                 el("button", { type: "button", class: "btn", text: "复制考号凭证", onclick: function () { copyText(credText, "考号凭证已复制"); } }),
-                el("button", { type: "button", class: "btn btn-primary", text: "进入智考中心 →", onclick: function () { location.reload(); } }),
+                el("button", { type: "button", class: "btn btn-primary", text: "进入智考中心 →", onclick: function () { loadExamSession(); } }),
               ),
             );
           }).catch(function (err) {
@@ -2958,7 +3103,7 @@
 
       var usernameI = el("input", { value: u ? u.username : "", placeholder: "2–24 位字母/数字/中文", required: true });
       var nameI = el("input", { value: u ? u.displayName : "", placeholder: "员工真实姓名或显示昵称" });
-      var emailI = el("input", { type: "email", value: u ? u.email : "", placeholder: "name@goutoustdio.top", required: true });
+      var emailI = el("input", { type: "email", value: u ? u.email : "", placeholder: "可留空，留空则为纯智考账号" });
       var examNoI = el("input", { value: u ? u.examNo : "", maxlength: "4", inputmode: "numeric", placeholder: "4位数字如 0413（可留空）" });
       var genBtn = el("button", { type: "button", class: "btn btn-sm", text: "随机考号", onclick: function () {
         GS.api("GET", "/api/exam/admin/users/next-exam-no").then(function (r) { examNoI.value = r.examNo; }).catch(fail);
@@ -2990,7 +3135,7 @@
           el("div", { class: "field" }, el("label", { text: "4 位考号" }), el("div", { class: "row" }, el("div", { class: "grow" }, examNoI), genBtn)),
           el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "用户名" }), usernameI),
           el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "全名 / 昵称" }), nameI),
-          el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "邮箱" }), emailI),
+          el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "邮箱（可选，留空为纯智考账号）" }), emailI),
           el("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.75rem" },
             el("div", { class: "field" }, el("label", { text: "所属部门" }), deptI),
             el("div", { class: "field" }, el("label", { text: "账号角色" }), roleSel),
@@ -3052,23 +3197,37 @@
     else if (state.activeTab === "admin-users") renderAdminUsers(root);
   }
 
-  GS.me().then(function (u) {
-    state.me = u;
-    if (!u) {
+  function loadExamSession() {
+    return GS.api("GET", "/api/exam/public/session").then(function (res) {
+      state.publicConfig = res;
+      state.siteUser = res.siteUser || null;
+      state.authMode = res.authMode || "none";
+      state.me = res.user || null;
+
+      if (!state.me) {
+        state.examMe = null;
+        state.exams = [];
+        renderIdCard();
+        renderGuestAuth(res);
+        return;
+      }
+
+      shell.classList.remove("is-guest");
+      sidebar.hidden = false;
+      adminNav.hidden = state.me.role !== "admin";
+
+      return Promise.all([GS.api("GET", "/api/exam/me"), GS.api("GET", "/api/exam/list")]).then(function (data) {
+        state.examMe = data[0];
+        state.exams = data[1].exams;
+        renderIdCard();
+        switchTab(parseInitialTab());
+      }).catch(fail);
+    }).catch(function () {
+      state.me = null;
       renderIdCard();
       renderGuestAuth();
-      return;
-    }
+    });
+  }
 
-    shell.classList.remove("is-guest");
-    sidebar.hidden = false;
-    adminNav.hidden = u.role !== "admin";
-
-    Promise.all([GS.api("GET", "/api/exam/me"), GS.api("GET", "/api/exam/list")]).then(function (res) {
-      state.examMe = res[0];
-      state.exams = res[1].exams;
-      renderIdCard();
-      switchTab(parseInitialTab());
-    }).catch(fail);
-  });
+  loadExamSession();
 })();

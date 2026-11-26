@@ -597,7 +597,7 @@
 
   /* ---------- 6. 交互式扫描全能王弹窗（管理员专属：扫卷并提交成绩给成员） ---------- */
   function open(opts) {
-    if (!opts || opts.isAdmin === false) {
+    if (!opts || opts.isAdmin !== true) {
       GS.toast("扫描功能仅限管理员使用");
       return;
     }

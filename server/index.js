@@ -39,15 +39,21 @@ app.use(helmet({
 }));
 app.use("/api", (_req, res, next) => { res.set("Cache-Control", "no-store"); res.set("Vary", "Cookie"); next(); });
 app.use(cookieParser());
+app.use((req, _res, next) => { req.user = A.sessionUser(req.cookies[A.COOKIE]); next(); });
 const jsonSmall = express.json({ limit: "64kb" });
 const jsonMedium = express.json({ limit: "512kb" });
 const jsonUpload = express.json({ limit: "35mb" });
 app.use("/api", (req, res, next) => {
-  if (["/exam/admin/papers", "/exam/admin/parse-doc", "/exam/admin/parse-photos", "/exam/admin/smart-scan-grade", "/exam/admin/ai-grade"].includes(req.path) && req.method === "POST") {
-    return jsonUpload(req, res, next);
-  }
-  if (/^\/exam\/admin\//.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {
-    return jsonMedium(req, res, next);
+  const examUser = req.cookies?.[A.EXAM_COOKIE]
+    ? A.sessionUser(req.cookies[A.EXAM_COOKIE])
+    : (req.cookies?.[A.EXAM_DETACHED_COOKIE] === "1" ? null : req.user);
+  if (examUser?.role === "admin") {
+    if (["/exam/admin/papers", "/exam/admin/parse-doc", "/exam/admin/parse-photos", "/exam/admin/smart-scan-grade", "/exam/admin/ai-grade"].includes(req.path) && req.method === "POST") {
+      return jsonUpload(req, res, next);
+    }
+    if (/^\/exam\/admin\//.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {
+      return jsonMedium(req, res, next);
+    }
   }
   return jsonSmall(req, res, next);
 });
@@ -59,8 +65,6 @@ app.use("/api", (req, res, next) => {
   try { if (o && new URL(o).host === req.get("host")) return next(); } catch { /* 非法 Origin */ }
   res.status(403).json({ error: "forbidden origin" });
 });
-
-app.use((req, _res, next) => { req.user = A.sessionUser(req.cookies[A.COOKIE]); next(); });
 
 db.prepare("SELECT id FROM users").all().forEach((r) => syncAdmin(r.id)); // 启动时按 ADMIN_EMAIL 全量同步
 
@@ -148,7 +152,16 @@ app.use("/spaceos/repo", (_req, res) => res.status(404).type("text/plain").send(
 
 app.use(express.static(pub, { extensions: ["html"] }));
 app.use((_req, res) => res.status(404).sendFile(path.join(pub, "index.html")));
-app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: "服务器错误" }); });
+app.use((err, _req, res, _next) => {
+  if (err?.type === "entity.too.large" || err?.status === 413) {
+    return res.status(413).json({ error: "请求内容过大" });
+  }
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "JSON 格式不正确" });
+  }
+  console.error(err);
+  res.status(500).json({ error: "服务器错误" });
+});
 
 setInterval(A.cleanupExpired, 3600 * 1000).unref();
 setInterval(oauthCleanup, 3600 * 1000).unref();

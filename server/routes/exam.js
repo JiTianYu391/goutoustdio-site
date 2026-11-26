@@ -778,13 +778,94 @@ function computeExamAggregates(examId) {
 }
 
 // ====================================================================
-// 公开配置与自动考号分配自助注册（免登录）
+// 独立智考会话解析（不绑定主站账号也可单独登录/退出；保留主站账号回退）
+// ====================================================================
+r.use((req, _res, next) => {
+  req.siteUser = req.user || null;
+  const examToken = req.cookies?.[A.EXAM_COOKIE];
+  if (examToken) {
+    req.user = A.sessionUser(examToken);
+    req.examAuthMode = req.user ? "exam" : "none";
+  } else if (req.cookies?.[A.EXAM_DETACHED_COOKIE] === "1") {
+    req.user = null;
+    req.examAuthMode = "detached";
+  } else if (req.siteUser) {
+    req.examAuthMode = "site";
+  } else {
+    req.examAuthMode = "none";
+  }
+  next();
+});
+
+// ====================================================================
+// 公开配置、独立账密登录/退出与自动考号自助注册（免主站绑定）
 // ====================================================================
 r.get("/public/config", (_req, res) => {
   res.json({
     departments: EXAM_DEPARTMENTS,
     selfRegisterEnabled: isSelfRegisterEnabled(),
   });
+});
+
+r.get("/public/session", (req, res) => {
+  const active = req.user ? getUser(req.user.id) : null;
+  const site = req.siteUser ? getUser(req.siteUser.id) : null;
+  res.json({
+    user: active ? examUserDto(active) : null,
+    siteUser: site ? examUserDto(site) : null,
+    authMode: req.examAuthMode || "none",
+    departments: EXAM_DEPARTMENTS,
+    selfRegisterEnabled: isSelfRegisterEnabled(),
+  });
+});
+
+r.post("/public/login", authLimit, async (req, res) => {
+  const id = str(req.body?.identifier || req.body?.username).trim();
+  const password = str(req.body?.password);
+  if (!id || !password) return res.status(400).json({ error: "请输入账号和密码" });
+
+  let u = db.prepare("SELECT * FROM users WHERE username=? OR email=?").get(id, id);
+  if (!u && EXAM_NO_RE.test(id)) u = db.prepare("SELECT * FROM users WHERE exam_no=?").get(id);
+  const ok = u ? await A.verifyPassword(password, u.password_hash) : (await A.hashPassword(password), false);
+  if (!ok) return res.status(401).json({ error: "用户名、考号或密码错误" });
+  if (u.banned) return res.status(403).json({ error: `账号已被封禁${u.ban_reason ? "：" + u.ban_reason : ""}` });
+  if (u.totp_secret) {
+    res.cookie(A.MFA_COOKIE, A.createMfaPending(u.id), {
+      httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production",
+      path: "/api/login", maxAge: 5 * 60 * 1000,
+    });
+    return res.json({ mfa: "totp" });
+  }
+
+  syncAdmin(u.id);
+  A.destroySession(req.cookies?.[A.EXAM_COOKIE]);
+  A.setExamCookie(res, A.createSession(u.id, req));
+  A.setExamDetachedCookie(res, false);
+  res.json({ user: examUserDto(getUser(u.id)), authMode: "exam" });
+});
+
+r.post("/public/logout", (req, res) => {
+  A.destroySession(req.cookies?.[A.EXAM_COOKIE]);
+  A.clearExamCookie(res);
+  const alsoSite = req.body?.alsoSite === true;
+  if (alsoSite) {
+    A.destroySession(req.cookies?.[A.COOKIE]);
+    res.clearCookie(A.COOKIE, { path: "/" });
+    A.setExamDetachedCookie(res, false);
+  } else if (req.siteUser) {
+    A.setExamDetachedCookie(res, true);
+  } else {
+    A.setExamDetachedCookie(res, false);
+  }
+  res.json({ ok: true, siteStillLoggedIn: !!(req.siteUser && !alsoSite) });
+});
+
+r.post("/public/use-site-account", (req, res) => {
+  if (!req.siteUser) return res.status(401).json({ error: "主站尚未登录 GoutouStdio 账号" });
+  A.destroySession(req.cookies?.[A.EXAM_COOKIE]);
+  A.clearExamCookie(res);
+  A.setExamDetachedCookie(res, false);
+  res.json({ ok: true, user: examUserDto(getUser(req.siteUser.id)), authMode: "site" });
 });
 
 r.post("/public/auto-register", authLimit, async (req, res) => {
@@ -797,8 +878,10 @@ r.post("/public/auto-register", authLimit, async (req, res) => {
       department: req.body?.department,
       emailVerified: false,
     });
-    A.setCookie(res, A.createSession(user.id, req));
-    res.status(201).json({ user: pubUser(user), credentials });
+    A.destroySession(req.cookies?.[A.EXAM_COOKIE]);
+    A.setExamCookie(res, A.createSession(user.id, req));
+    A.setExamDetachedCookie(res, false);
+    res.status(201).json({ user: pubUser(user), credentials, authMode: "exam" });
   } catch (e) {
     const status = Number(e?.status) >= 400 && Number(e?.status) < 500 ? Number(e.status) : 400;
     res.status(status).json({ error: e?.message || "自动考号注册失败" });
@@ -1333,7 +1416,7 @@ r.get("/admin/users/by-exam-no/:examNo", (req, res) => {
 r.post("/admin/users", async (req, res) => {
   const username = str(req.body.username).trim();
   const displayName = str(req.body.displayName).trim();
-  const email = str(req.body.email).trim();
+  let email = str(req.body.email).trim();
   const password = str(req.body.password);
   const examNo = str(req.body.examNo).trim();
   const department = str(req.body.department).trim().slice(0, 40);
@@ -1342,7 +1425,17 @@ r.post("/admin/users", async (req, res) => {
 
   if (!USER_RE.test(username)) return res.status(400).json({ error: "用户名为 2–24 位字母、数字、中文、_ 或 -" });
   if (displayName.length > 32) return res.status(400).json({ error: "姓名/昵称最多 32 字" });
-  if (!MAIL_RE.test(email)) return res.status(400).json({ error: "邮箱格式不正确" });
+  if (email) {
+    if (!MAIL_RE.test(email)) return res.status(400).json({ error: "邮箱格式不正确" });
+  } else {
+    const baseTag = examNo || `exam_${crypto.randomBytes(4).toString("hex")}`;
+    email = `${baseTag}@exam.goutoustdio.top`;
+    let tries = 0;
+    while (db.prepare("SELECT 1 FROM users WHERE email=?").get(email) && tries < 8) {
+      email = `${baseTag}_${crypto.randomBytes(2).toString("hex")}@exam.goutoustdio.top`;
+      tries++;
+    }
+  }
   if (password.length < 4 || password.length > 128) return res.status(400).json({ error: "初始密码长度需为 4–128 位" });
   if (examNo && !EXAM_NO_RE.test(examNo)) return res.status(400).json({ error: "考号必须为 4 位数字（如 0413）" });
 

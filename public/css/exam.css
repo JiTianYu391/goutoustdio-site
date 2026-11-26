@@ -29,6 +29,12 @@
   gap: .65rem;
   flex-wrap: wrap;
 }
+.exam-user-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
 .exam-user-meta {
   display: flex;
   align-items: center;
@@ -184,6 +190,14 @@
   font-family: var(--pg-font-mono);
   font-weight: 700;
   color: var(--pg-fg-1);
+}
+.exam-site-acct-box {
+  padding: .75rem .9rem;
+  border-radius: var(--ui-r);
+  border: 1px solid var(--ui-border);
+  background: var(--pg-bg-sunken);
+  display: grid;
+  gap: .55rem;
 }
 
 /* ---------- 通用工具栏 & 扁平极简卡片 ---------- */
