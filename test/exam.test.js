@@ -369,6 +369,123 @@ test("发布考试后：员工查看智学网式诊断报告、原卷与错题�
   assert.equal(stealM.status, 403);
 });
 
+test("删除错题、批量清空原卷与删除成员成绩接口", async () => {
+  // 员工删除自己的一条错题，其他员工无权删除
+  const restMistakes = (await api("GET", "/api/exam/mistakes", undefined, emp1Cookie)).json.mistakes;
+  assert.equal(restMistakes.length, 2);
+  const forbiddenDelM = await api("DELETE", `/api/exam/mistakes/${restMistakes[1].id}`, undefined, emp2Cookie);
+  assert.equal(forbiddenDelM.status, 403);
+
+  const delM = await api("DELETE", `/api/exam/mistakes/${mistakeId}`, undefined, emp1Cookie);
+  assert.equal(delM.status, 200);
+  const afterDelM = await api("GET", "/api/exam/mistakes", undefined, emp1Cookie);
+  assert.equal(afterDelM.json.mistakes.length, 1);
+
+  // 上传到第2科的原卷可通过 DELETE /api/exam/admin/papers 整科清空并移除磁盘文件
+  const up2 = await api("POST", "/api/exam/admin/papers", {
+    examId, subjectId: sub2Id, examNo: "0413", pageNo: 1, imageData: VALID_JPEG_DATA_URL,
+  }, adminCookie);
+  assert.equal(up2.status, 201);
+  const row2 = db.prepare("SELECT file_name FROM exam_paper_pages WHERE id=?").get(up2.json.page.id);
+  const fullPath2 = path.join(tmpDir, "exam_uploads", row2.file_name);
+  assert.equal(existsSync(fullPath2), true);
+
+  const clr = await api("DELETE", `/api/exam/admin/papers?examId=${examId}&subjectId=${sub2Id}&userId=${emp1Id}`, undefined, adminCookie);
+  assert.equal(clr.status, 200);
+  assert.equal(clr.json.deleted, 1);
+  assert.equal(existsSync(fullPath2), false);
+
+  // 删除 0007 在本场考试中的成绩
+  const delScore = await api("DELETE", `/api/exam/admin/exams/${examId}/scores/${emp2Id}`, undefined, adminCookie);
+  assert.equal(delScore.status, 200);
+  const ov = await api("GET", `/api/exam/admin/exams/${examId}/overview`, undefined, adminCookie);
+  assert.equal(ov.json.ranking.some((r) => r.userId === emp2Id), false);
+});
+
+test("自动考号分配注册系统：5 个部门、用户名=ID=密码=4位考号及访客开关控制", async () => {
+  const pubCfg = await api("GET", "/api/exam/public/config");
+  assert.equal(pubCfg.status, 200);
+  assert.deepEqual(pubCfg.json.departments, ["管理部", "内核开发部", "自行车动作部", "软件部", "游戏部"]);
+  assert.equal(pubCfg.json.selfRegisterEnabled, true);
+
+  // 非法部门应返回 400
+  const badDept = await api("POST", "/api/exam/admin/users/auto-register", {
+    fullName: "无效部门成员", department: "不存在的部门",
+  }, adminCookie);
+  assert.equal(badDept.status, 400);
+
+  // 管理员单人自动分配考号
+  const singleRes = await api("POST", "/api/exam/admin/users/auto-register", {
+    fullName: "林浩", department: "内核开发部",
+  }, adminCookie);
+  assert.equal(singleRes.status, 201);
+  assert.equal(singleRes.json.created.length, 1);
+  const cred1 = singleRes.json.created[0];
+  assert.match(cred1.examNo, /^\d{4}$/);
+  assert.equal(cred1.id, Number(cred1.examNo));
+  assert.equal(cred1.username, cred1.examNo);
+  assert.equal(cred1.password, cred1.examNo);
+  assert.equal(cred1.department, "内核开发部");
+
+  // 用生成的 4 位考号同时作为用户名与密码直接登录
+  const loginAuto = await api("POST", "/api/login", { identifier: cred1.examNo, password: cred1.examNo });
+  assert.equal(loginAuto.status, 200);
+  assert.equal(loginAuto.json.user.id, Number(cred1.examNo));
+  assert.equal(loginAuto.json.user.examNo, cred1.examNo);
+
+  // 管理员批量自动分配考号
+  const batchRes = await api("POST", "/api/exam/admin/users/auto-register", {
+    entries: [
+      { fullName: "陈晨", department: "自行车动作部" },
+      { fullName: "周杰", department: "游戏部" },
+      { fullName: "孙敏", department: "软件部" },
+    ],
+  }, adminCookie);
+  assert.equal(batchRes.status, 201);
+  assert.equal(batchRes.json.created.length, 3);
+  for (const c of batchRes.json.created) {
+    assert.match(c.examNo, /^\d{4}$/);
+    assert.equal(c.id, Number(c.examNo));
+    assert.equal(c.username, c.examNo);
+    assert.equal(c.password, c.examNo);
+  }
+
+  // 按部门筛选成员列表
+  const filtered = await api("GET", `/api/exam/admin/users?department=${encodeURIComponent("内核开发部")}`, undefined, adminCookie);
+  assert.equal(filtered.status, 200);
+  assert.ok(filtered.json.users.some((u) => u.examNo === cred1.examNo && u.displayName === "林浩"));
+
+  // 未登录访客自助注册自动分配 4 位考号并写入登录态 Cookie
+  const pubReg = await api("POST", "/api/exam/public/auto-register", {
+    fullName: "马俊宇", department: "管理部",
+  });
+  assert.equal(pubReg.status, 201);
+  const pubCred = pubReg.json.credentials;
+  assert.match(pubCred.examNo, /^\d{4}$/);
+  assert.equal(pubCred.id, Number(pubCred.examNo));
+  assert.equal(pubCred.username, pubCred.examNo);
+  assert.equal(pubCred.password, pubCred.examNo);
+  const pubCookie = cookiesFrom({ headers: pubReg.headers });
+  const pubExamMe = await api("GET", "/api/exam/me", undefined, pubCookie);
+  assert.equal(pubExamMe.status, 200);
+  assert.equal(pubExamMe.json.user.examNo, pubCred.examNo);
+  assert.equal(pubExamMe.json.user.department, "管理部");
+
+  // 管理员关闭访客自助注册后拒绝 403，恢复开启后允许
+  const offRes = await api("PUT", "/api/exam/admin/settings", { selfRegisterEnabled: false }, adminCookie);
+  assert.equal(offRes.status, 200);
+  assert.equal(offRes.json.selfRegisterEnabled, false);
+
+  const blockedReg = await api("POST", "/api/exam/public/auto-register", {
+    fullName: "被拦截访客", department: "软件部",
+  });
+  assert.equal(blockedReg.status, 403);
+
+  const onRes = await api("PUT", "/api/exam/admin/settings", { selfRegisterEnabled: true }, adminCookie);
+  assert.equal(onRes.status, 200);
+  assert.equal(onRes.json.selfRegisterEnabled, true);
+});
+
 test("删除考试后清理磁盘扫描图片文件", async () => {
   const paperRow = db.prepare("SELECT file_name FROM exam_paper_pages WHERE id=?").get(paperPageId);
   const fullPath = path.join(tmpDir, "exam_uploads", paperRow.file_name);

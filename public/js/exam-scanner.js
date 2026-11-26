@@ -1349,14 +1349,16 @@
           }, Promise.resolve([])).then(function (uploadedPages) {
             if (useAiGrade) {
               uploadBtn.textContent = "DeepSeek AI 正在自动阅卷批改…";
-              return GS.api("POST", "/api/exam/admin/ai-grade", {
+              var gradePayload = {
                 examId: opts.examId,
                 subjectId: opts.subjectId,
                 userId: opts.student.id,
+                pageIds: uploadedPages.map(function (p) { return p.id; }),
                 applyAnnotations: true,
                 autoSave: true,
-              }).then(function (gr) {
-                return { uploadedPages: uploadedPages, syncedScore: true, aiGrading: gr.grading };
+              };
+              return GS.api("POST", "/api/exam/admin/ai-grade", gradePayload).then(function (gr) {
+                return { uploadedPages: uploadedPages, syncedScore: !gr.needsConfirmation, aiResponse: gr, gradePayload: gradePayload };
               });
             }
             if (!willSync) return { uploadedPages: uploadedPages, syncedScore: false };
@@ -1376,15 +1378,35 @@
               return { uploadedPages: uploadedPages, syncedScore: true };
             });
           }).then(function (res) {
-            if (res.aiGrading) {
-              GS.toast("AI 已批改完成：实得 " + res.aiGrading.score + " / " + res.aiGrading.fullScore + " 分（已生成红笔批注与错题本）");
-            } else {
-              GS.toast(res.syncedScore
-                ? "已上传 " + res.uploadedPages.length + " 页扫描试卷并提交成绩给成员"
-                : "已上传 " + res.uploadedPages.length + " 页扫描试卷");
+            if (res.aiResponse && res.aiResponse.needsConfirmation) {
+              var savedPages = res.uploadedPages;
+              var aiRes = res.aiResponse;
+              var gp = res.gradePayload;
+              cleanup();
+              openMatchConfirmDialog(aiRes, gp).then(function (confirmRes) {
+                if (confirmRes && confirmRes.confirmed) {
+                  var who = confirmRes.targetUser ? (confirmRes.targetUser.displayName || confirmRes.targetUser.username) : "";
+                  GS.toast("AI 已批改并归入「" + who + "」：" + confirmRes.grading.score + " / " + confirmRes.grading.fullScore + " 分");
+                  if (opts.onUploaded) opts.onUploaded(savedPages, true, confirmRes.grading, confirmRes.targetUser);
+                } else {
+                  GS.toast("已取消成绩入库（扫描件已保存，可稍后重新核对）");
+                  if (opts.onUploaded) opts.onUploaded(savedPages, false, null, null);
+                }
+              });
+              return;
             }
+            if (res.aiResponse) {
+              var g = res.aiResponse.grading;
+              GS.toast("AI 已批改完成：实得 " + g.score + " / " + g.fullScore + " 分（已生成红笔批注与错题本）");
+              cleanup();
+              if (opts.onUploaded) opts.onUploaded(res.uploadedPages, true, g, res.aiResponse.targetUser || opts.student);
+              return;
+            }
+            GS.toast(res.syncedScore
+              ? "已上传 " + res.uploadedPages.length + " 页扫描试卷并提交成绩给成员"
+              : "已上传 " + res.uploadedPages.length + " 页扫描试卷");
             cleanup();
-            if (opts.onUploaded) opts.onUploaded(res.uploadedPages, res.syncedScore, res.aiGrading);
+            if (opts.onUploaded) opts.onUploaded(res.uploadedPages, res.syncedScore, null, opts.student);
           }).catch(function (err) {
             done();
             updateUploadBtnText();
@@ -1404,10 +1426,218 @@
     dlg.showModal();
   }
 
+  /* ---------- 7. AI 扫错/模糊匹配考生身份核对确认弹窗 ---------- */
+  function openMatchConfirmDialog(aiRes, reqPayload) {
+    var el = GS.el, icon = GS.icon;
+    var label = function (text, kind) {
+      return el("span", { class: "label" + (kind ? " ui-soft-" + kind : ""), text: text });
+    };
+
+    return new Promise(function (resolve) {
+      var doneOnce = false;
+      var cands = Array.isArray(aiRes.candidates) ? aiRes.candidates.slice() : [];
+      var selectedUserId = (aiRes.bestMatch && aiRes.bestMatch.id) || (aiRes.currentTarget && aiRes.currentTarget.id) || 0;
+      var selectedLabelMap = {};
+      cands.forEach(function (c) {
+        selectedLabelMap[c.id] = c.displayName || c.username || ("ID " + c.id);
+      });
+      if (aiRes.currentTarget) {
+        selectedLabelMap[aiRes.currentTarget.id] = aiRes.currentTarget.displayName || aiRes.currentTarget.username || ("ID " + aiRes.currentTarget.id);
+      }
+
+      var det = (aiRes.grading && aiRes.grading.detectedStudent) || {};
+      var reasons = Array.isArray(aiRes.discrepancyReasons) ? aiRes.discrepancyReasons : [];
+
+      var dlg = el("dialog", {
+        class: "ui-dialog ui",
+        style: "width:min(100% - 1.5rem, 36rem)",
+        "aria-label": "考生身份核对与模糊匹配确认",
+      });
+      dlg.setAttribute("data-lenis-prevent", "");
+
+      var okBtn = el("button", { type: "button", class: "btn btn-primary", text: "确认并保存成绩" });
+      var cancelBtn = el("button", { type: "button", class: "btn", text: "暂不录入" });
+      var moveNotice = el("div", { class: "small muted", hidden: true });
+      var pickerSel = el("select", null, el("option", { value: "", text: "正在加载全部成员名单…" }));
+      var radioList = el("div", { style: "display:grid;gap:.5rem" });
+      var radioInputs = [];
+
+      function updateSelectionUi() {
+        var name = selectedLabelMap[selectedUserId] || (selectedUserId ? ("ID " + selectedUserId) : "所选成员");
+        okBtn.textContent = selectedUserId ? ("确认归入「" + name + "」并保存") : "请选择目标成员";
+        okBtn.disabled = !selectedUserId;
+        var willMove = !!(selectedUserId && aiRes.sourceUserId && selectedUserId !== aiRes.sourceUserId && aiRes.pageIds && aiRes.pageIds.length);
+        moveNotice.hidden = !willMove;
+        if (willMove) {
+          moveNotice.textContent = "提示：确认后将自动把本次扫描的 " + aiRes.pageIds.length + " 页原卷移交至「" + name + "」名下并写入成绩与错题本，原选中考生不受影响。";
+        }
+      }
+
+      cands.forEach(function (c) {
+        var rdo = el("input", {
+          type: "radio",
+          name: "exam-match-cand",
+          value: String(c.id),
+          checked: c.id === selectedUserId,
+          onchange: function () {
+            if (!this.checked) return;
+            selectedUserId = c.id;
+            pickerSel.value = "";
+            updateSelectionUi();
+          },
+        });
+        radioInputs.push({ id: c.id, input: rdo });
+
+        var isBest = !!(aiRes.bestMatch && c.id === aiRes.bestMatch.id);
+        var isCurr = !!(aiRes.currentTarget && c.id === aiRes.currentTarget.id);
+        radioList.append(el("label", {
+          style: "padding:.65rem .8rem;border:1px solid var(--ui-border);border-radius:var(--ui-r);background:var(--pg-bg-sunken);display:grid;gap:.25rem;cursor:pointer",
+        },
+          el("div", { class: "row", style: "justify-content:space-between" },
+            el("div", { class: "row" },
+              rdo,
+              el("span", { class: "exam-no-pill", text: c.examNo || "无考号" }),
+              el("strong", { text: c.displayName || c.username }),
+              el("span", { class: "small muted", text: c.department || "未设部门" }),
+            ),
+            el("div", { class: "row" },
+              isBest ? label("最相似推荐 " + c.matchPct + "%", "success") : label("匹配度 " + c.matchPct + "%"),
+              isCurr ? label("当前选中", "accent") : null,
+            ),
+          ),
+          el("div", {
+            class: "small muted",
+            style: "padding-left:1.35rem",
+            text: (c.reasons && c.reasons.length) ? ("匹配依据：" + c.reasons.join(" · ")) : "当前页面选中的考生",
+          }),
+        ));
+      });
+
+      GS.api("GET", "/api/exam/admin/users").then(function (d) {
+        var users = (d && Array.isArray(d.users)) ? d.users : [];
+        users.forEach(function (u) {
+          selectedLabelMap[u.id] = u.displayName || u.username || ("ID " + u.id);
+        });
+        pickerSel.replaceChildren.apply(pickerSel, [el("option", { value: "", text: "— 从全库成员中手动指定 —" })].concat(
+          users.map(function (u) {
+            return el("option", {
+              value: String(u.id),
+              text: (u.examNo ? "[" + u.examNo + "] " : "[无考号] ") + (u.displayName || u.username) + (u.department ? " · " + u.department : ""),
+            });
+          }),
+        ));
+      }).catch(function () {
+        pickerSel.replaceChildren(el("option", { value: "", text: "加载全库名单失败，请从上方候选中选择" }));
+      });
+
+      pickerSel.addEventListener("change", function () {
+        var val = Number(pickerSel.value);
+        if (!val) return;
+        selectedUserId = val;
+        radioInputs.forEach(function (ri) { ri.input.checked = false; });
+        updateSelectionUi();
+      });
+
+      updateSelectionUi();
+
+      var bodyEl = el("div", { class: "dialog-body", style: "display:grid;gap:.85rem;max-height:72dvh;overflow-y:auto" },
+        el("div", { class: "flash flash-warn", style: "margin:0" },
+          icon("alert"),
+          el("div", { style: "display:grid;gap:.25rem" },
+            el("strong", {
+              text: "AI 卷面识别：考号「" + (det.examNo || "未识别") + "」· 姓名「" + (det.name || "未识别") + "」· 部门「" + (det.department || "未识别") + "」",
+            }),
+            el("span", {
+              class: "small",
+              text: (reasons.length ? reasons.join("；") + "。" : "") + "已从数据库检索最相似成员，请核对后确认归属：",
+            }),
+          ),
+        ),
+        el("div", { class: "row" },
+          label("AI 判分：" + aiRes.grading.score + " / " + aiRes.grading.fullScore + " 分", "accent"),
+          label("失分小题：" + (aiRes.grading.wrongCount || 0) + " 道", aiRes.grading.wrongCount ? "attention" : "success"),
+        ),
+        cands.length ? el("div", { style: "display:grid;gap:.4rem" },
+          el("strong", { class: "small", text: "数据库最相似成员候选（点击选择）" }),
+          radioList,
+        ) : el("p", { class: "small muted", style: "margin:0", text: "暂未检索到高相似度候选人，请在下方从全库成员中手动指定。" }),
+        el("div", { class: "field", style: "margin-top:0" },
+          el("label", { text: "不在以上候选？从全部成员中手动指定：" }),
+          pickerSel,
+        ),
+        moveNotice,
+      );
+
+      dlg.append(
+        el("header", null, icon("alert"), el("span", { class: "grow", text: "考生身份核对与模糊匹配确认" })),
+        bodyEl,
+        el("footer", null, cancelBtn, okBtn),
+      );
+      document.body.appendChild(dlg);
+
+      function cleanup() {
+        dlg.close();
+        dlg.remove();
+      }
+      function finishCancel() {
+        if (doneOnce) return;
+        doneOnce = true;
+        cleanup();
+        resolve({ confirmed: false, cancelled: true, grading: aiRes.grading });
+      }
+
+      cancelBtn.addEventListener("click", finishCancel);
+      dlg.addEventListener("cancel", function (e) { e.preventDefault(); finishCancel(); });
+      okBtn.addEventListener("click", function () {
+        if (!selectedUserId) return GS.toast("请先选择要归入的成员");
+        var done = GS.busy(okBtn, "正在归档保存…");
+        GS.api("POST", "/api/exam/admin/ai-grade/confirm", {
+          examId: reqPayload.examId,
+          subjectId: reqPayload.subjectId,
+          targetUserId: selectedUserId,
+          sourceUserId: aiRes.sourceUserId,
+          pageIds: aiRes.pageIds,
+          applyAnnotations: reqPayload.applyAnnotations !== false,
+          grading: aiRes.grading,
+        }).then(function (r) {
+          if (doneOnce) return;
+          doneOnce = true;
+          cleanup();
+          resolve({
+            confirmed: true,
+            targetUser: r.targetUser,
+            grading: r.grading,
+            reassignedPapers: r.reassignedPapers || 0,
+          });
+        }).catch(function (err) {
+          done();
+          if (!err.cancelled) GS.toast(err.message || "确认归档失败");
+        });
+      });
+
+      dlg.showModal();
+    });
+  }
+
+  function runAiGradeWithConfirm(reqPayload) {
+    return GS.api("POST", "/api/exam/admin/ai-grade", reqPayload).then(function (r) {
+      if (!r.needsConfirmation) {
+        return {
+          confirmed: true,
+          targetUser: r.targetUser || null,
+          grading: r.grading,
+          reassignedPapers: 0,
+        };
+      }
+      return openMatchConfirmDialog(r, reqPayload);
+    });
+  }
+
   window.ExamScanner = {
     open: open,
     detectDocumentQuad: detectDocumentQuad,
     warpPerspective: warpPerspective,
     applyFilter: applyFilter,
+    runAiGradeWithConfirm: runAiGradeWithConfirm,
   };
 })();

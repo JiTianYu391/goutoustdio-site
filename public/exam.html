@@ -59,28 +59,38 @@
   <!-- chrome:end -->
 
   <main id="main" class="ui">
-    <section class="hero hero-compact exam-hero">
-      <div class="container exam-hero-grid">
-        <div>
-          <p class="hero-badge"><span class="badge badge-ok">内部智考中心</span> 4 位考号认证 · 电子原卷 · 雷达图诊断</p>
-          <h1>GoutouStdio <span class="grad">智考中心</span></h1>
-          <p class="lede">员工内部考核成绩查询、多维能力雷达图诊断、高清扫描原卷与自动错题归集。支持使用 GoutouStdio 账号或 4 位数字考号直接登录。</p>
+    <section class="exam-topbar">
+      <div class="container exam-topbar-inner">
+        <div class="exam-brand-head">
+          <div class="exam-brand-title">GoutouStdio 智考中心</div>
+          <div class="exam-brand-sub">4 位考号认证 · 答题卡 AI 阅卷 · 学情诊断</div>
         </div>
-        <aside class="exam-id-card spot" id="exam-id-card" aria-label="考生身份卡片">
-          <div class="exam-id-loading muted small">正在校验 GoutouStdio 账号会话…</div>
-        </aside>
+        <div class="exam-user-bar" id="exam-id-card" aria-label="考生身份与概览">
+          <span class="small muted">正在校验会话…</span>
+        </div>
       </div>
     </section>
 
-    <section class="section exam-workspace">
+    <section class="exam-workspace">
       <div class="container">
-        <nav class="tabnav exam-tabs" id="exam-tabs" role="tablist" aria-label="智考功能模块" hidden>
-          <button role="tab" data-tab="report" aria-selected="true">成绩报告</button>
-          <button role="tab" data-tab="papers" aria-selected="false">答题卡与原卷</button>
-          <button role="tab" data-tab="mistakes" aria-selected="false">错题本 <span class="counter" id="mistake-count" hidden></span></button>
-          <button role="tab" data-tab="admin" id="tab-admin" aria-selected="false" hidden>考务管理</button>
-        </nav>
-        <div id="exam-root"></div>
+        <div class="exam-shell" id="exam-shell">
+          <aside class="exam-sidebar" id="exam-sidebar" aria-label="智考导航" hidden>
+            <div class="exam-nav-group">
+              <div class="exam-nav-label">我的学情</div>
+              <button type="button" class="exam-nav-item" data-tab="report" aria-selected="true">成绩报告</button>
+              <button type="button" class="exam-nav-item" data-tab="papers" aria-selected="false">答题卡与原卷</button>
+              <button type="button" class="exam-nav-item" data-tab="mistakes" aria-selected="false">错题本 <span class="counter" id="mistake-count" hidden></span></button>
+            </div>
+            <div class="exam-nav-group" id="exam-admin-nav" hidden>
+              <div class="exam-nav-label">考务工作台</div>
+              <button type="button" class="exam-nav-item" data-tab="admin-exams" aria-selected="false">考试管理</button>
+              <button type="button" class="exam-nav-item" data-tab="admin-scoring" aria-selected="false">录分与扫卷</button>
+              <button type="button" class="exam-nav-item" data-tab="admin-analytics" aria-selected="false">考情分析</button>
+              <button type="button" class="exam-nav-item" data-tab="admin-users" aria-selected="false">成员与考号</button>
+            </div>
+          </aside>
+          <div class="exam-stage" id="exam-root"></div>
+        </div>
       </div>
     </section>
   </main>

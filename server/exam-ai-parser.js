@@ -132,7 +132,7 @@ export function validatePhotoDataUrl(dataUrl) {
 function buildSystemPrompt() {
   return [
     "你是专业的中文试卷版面分析与结构化提取助手。用户会按页码顺序上传一张或多张手机拍摄/扫描的试卷照片（可能含试题卷、听力部分、填空题、主观题/大题、答题卡、参考答案或双向细目表）。",
-    "请仔细辨识所有图片里的印刷体与公式/题号/分值，并严格输出合法的 json 对象（不要输出任何 markdown 代码块说明文字之外的额外文本）。",
+    "请仔细辨识所有图片里的印刷体与手写体内容、涂改液修改后的最终字迹、手绘流程图/代码框、题号与分值，并严格输出合法的 json 对象（不要输出任何 markdown 代码块说明文字之外的额外文本）。",
     "",
     "规则要求：",
     "1. qtype 枚举只能取这 7 个值之一：",
@@ -143,11 +143,13 @@ function buildSystemPrompt() {
     "   - \"listening\": 听力题（包括听力理解、听力选择、听力填空等所有听力板块）",
     "   - \"essay\": 主观题/大题（包括大题、简答题、计算题、解答题、实验题、编程题、论述题、阅读理解、写作/作文等）",
     "   - \"other\": 其他未归类题型",
-    "2. 如果图片中包含「答题卡 / 填涂卡」，请跳过答题卡上重复的涂卡编号，skippedAnswerSheet 设为 true。",
-    "3. 忽略注意事项中的条款编号（如 1. 本试卷共…），只提取真正的试题。",
-    "4. 选择题 title 只保留清晰简洁的题干，不必把 A/B/C/D 选项全部塞进 title。",
-    "5. 主观题（大题）如果包含 (1)、(2) 等小问，请在 subQuestions 中拆出每个小问的 no（如 \"15(1)\"）、title、full（分值）、answer（如有）。",
-    "6. 如果图片里包含参考答案/评分标准，请把对应答案填入对应题目的 answer；如果包含双向细目表，请把对应章节/知识点填入 tag，否则 tag 可填题型或简要考点名。",
+    "2. 支持「手写试题卷 + 手写标准答案页」多张照片同时上传：若某张照片是手写/打印的「标准答案」「参考答案」「评分标准」（可能是多栏排版如左栏 1–3、中栏 4–6、右栏 7–10，且可能有涂改液重写），务必把对应题号的最终答案完整合并到对应题目的 answer 字段，并原样保留「意思对即可」「符合题意即可」「言之有理即可」等弹性评分说明。若同时附上试题题干，不要把「参考答案页」单独重复当成一套新题目。",
+    "3. 如果图片中包含「答题卡 / 填涂卡」等重复填涂区，请跳过答题卡涂卡编号（但可从卷头获取考试标题/学科），skippedAnswerSheet 设为 true。",
+    "4. 忽略页边警告（如「请勿在密封线外答题」）及「注意事项」「考生须知」条款编号（如 1. 本试卷共…），只提取真正的试题。",
+    "5. 选择题 title 保留简洁完整题干（不必把 A/B/C/D 选项全部塞进 title）；若题干引用右侧/下方流程图或代码框（如「如图2」「如图3 Python程序」），可把关键条件简明概括进 title。",
+    "6. 大题/主观题若每题分值已写在所属大题说明上（如「一、选择题（共60分，每题6分）」「二、主观题（共40分，每小题20分）」），务必正确推算每道小题的 full 分值（如 6 或 20）。",
+    "7. 主观题（大题）如果包含 (1)、(2) 等小问，请在 subQuestions 中拆出每个小问的 no（如 \"15(1)\"）、title、full（分值）、answer（如有）。",
+    "8. 如果包含双向细目表，请把对应章节/知识点填入 tag，否则 tag 可填题型或简要考点名。",
     "",
     "必须返回如下 JSON 结构示例：",
     JSON.stringify({
@@ -363,7 +365,7 @@ async function callDeepSeekVision({
   messages,
   creds,
   maxTokens = 8192,
-  timeoutMs = 90_000,
+  timeoutMs = 120_000,
   fetchImpl = fetch,
 }) {
   if (!creds.apiKey) {
@@ -396,7 +398,7 @@ async function callDeepSeekVision({
     respText = await resp.text();
   } catch (e) {
     if (e?.name === "AbortError") {
-      throw makeErr("DeepSeek API 请求超时（90s），建议减少单次页数或降低图片分辨率后重试", 504);
+      throw makeErr("DeepSeek API 请求超时（120s），建议减少单次页数或降低图片分辨率后重试", 504);
     }
     throw makeErr(`无法连接 DeepSeek API：${e?.message || "网络错误"}`, 502);
   } finally {
@@ -470,14 +472,20 @@ export async function parseExamPhotosWithAI({
 function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
   const hasTpl = Array.isArray(template) && template.length > 0;
   return [
-    "你是严谨专业的智能阅卷老师（智学网式 AI 阅卷引擎）。你会看到考生上传的答题卡/手写答卷扫描照片（按第 1 页…第 N 页排序），以及本题库的标准题目与参考答案。",
-    "请逐题识别考生在答题卡/试卷上的作答（包括选择题填涂、填空手写、听力作答、主观大题书面作答），对照参考答案与评分标准客观给分，并给出可直接在答题卡上绘制红笔批改标记的位置坐标。",
+    "你是严谨专业的智能阅卷老师（智学网式 AI 阅卷引擎）。你会看到考生上传的印刷或手写答题卡/答卷扫描照片（按第 1 页…第 N 页排序），以及本题库的标准题目与参考答案。",
+    "请逐题精准识别考生在答题卡/试卷上的作答（支持印刷填涂卡与手绘方框涂黑卡片、手写中文/英文/代码答案），对照参考答案与评分标准独立、客观地给分，并给出可直接在答题卡上绘制红笔批改标记的位置坐标。",
     "必须严格输出合法 json 对象！",
     "",
     `科目：${subjectName || "综合"}，科目满分：${fullScore} 分。`,
     hasTpl
       ? "请严格按照给定题目清单的题号 `no` 逐题批改输出（共 " + template.length + " 题，不要遗漏）："
       : "当前科目未预设小题清单，请从答卷中识别出全部作答题号与分值并批改：",
+    "",
+    "重要识别与判分规范：",
+    "1. 卷头考生信息：尽量从答题卡顶部读取考号（如 4 位数字 `0413`，可结合「考号」手写框及右上角准考证号填涂区交叉验证）、姓名（name）与部门（department），写入 detectedStudent。",
+    "2. 手绘/手涂选择题方框识别：多栏排列的选择题方框（如 1.[A][B][■C] 4.[A][■B][C]）中，请严格以「整框涂黑/阴影最深」的选项字母为考生所选；注意对照卡面上可能印刷或手写的「填涂示例」（例如斜线/浅划/误涂通常表示无效或划销），逐题核对题号数字与紧邻的一排选项框，避免跨栏看错题号或把涂改前划掉的方框误认为当前选择。",
+    "3. 主观题与弹性标准：若参考答案注明「意思对即可」「符合题意即可」「言之有理即可」等弹性标准，只要考生手写答案的核心概念正确且自圆其说即应给满分或酌情给高分，不要机械逐字扣分。",
+    "4. 独立阅卷原则：必须完全根据考生实际作答与标准答案判分，不要直接抄写卷面上可能已经存在的手写红字分数！",
     "",
     "每道题输出字段要求：",
     "- no: 字符串题号（若已提供清单，必须与清单中的 no 完全一致）",
@@ -486,33 +494,34 @@ function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
     "- full: 满分（数字）",
     "- got: 判得分值（0 到 full 之间的数字，支持 0.5 分步长）",
     "- isCorrect: 是否满分全对（true/false）",
-    "- reason: 简短精准的批改评语/扣分原因（如 \"填涂 B，正确\" 或 \"选 C（应为 B）\" 或 \"未说明 sysret 返回环 3，扣 2 分\"）",
+    "- reason: 简短精准的批改评语/扣分原因（如 \"涂选 C，正确\" 或 \"涂选 C（应为 B）\" 或 \"阐述了 VFS 统一上层接口的作用，符合标准\"）",
     "- markPos: { x, y } 归一化坐标（0.08~0.92 之间），指向该题号或考生答案旁适合加盖红色对勾 ✓ / 叉号 ✗ / 扣分批注的位置",
     "",
     "必须返回的 json 格式示例：",
     JSON.stringify({
-      totalScore: 86,
-      teacherComment: "总体完成度较高，客观题全对，主观题第 36 题特权级切换细节略缺。",
+      detectedStudent: { examNo: "0413", name: "雅俊宇", department: "管理部" },
+      totalScore: 88,
+      teacherComment: "总体完成度高，主观题阐述清晰，选择题第 8 题有误。",
       items: [
         {
           no: "1",
           pageNo: 1,
-          studentAnswer: "B",
-          full: 2,
-          got: 2,
+          studentAnswer: "C",
+          full: 6,
+          got: 6,
           isCorrect: true,
-          reason: "选择 B，回答正确",
-          markPos: { x: 0.28, y: 0.24 },
+          reason: "涂选 C，正确",
+          markPos: { x: 0.12, y: 0.42 },
         },
         {
-          no: "36",
-          pageNo: 2,
-          studentAnswer: "仅写出系统调用进入内核",
-          full: 15,
-          got: 11,
-          isCorrect: false,
-          reason: "第(3)问缺少 sysret 返回环 3 说明，扣 4 分",
-          markPos: { x: 0.72, y: 0.45 },
+          no: "11",
+          pageNo: 1,
+          studentAnswer: "VFS 是虚拟文件系统，是一套类似抽象层的子系统",
+          full: 20,
+          got: 20,
+          isCorrect: true,
+          reason: "准确说明 VFS 为抽象层，符合「意思对即可」标准",
+          markPos: { x: 0.72, y: 0.62 },
         },
       ],
     }, null, 2),
@@ -656,6 +665,13 @@ export function normalizeAiGradingResult(raw, { subject, pagesMeta = [], model =
   });
 
   const cleanItems = items.map(({ pageNo: _p, markPos: _m, ...rest }) => rest);
+  const rawDet = obj.detectedStudent && typeof obj.detectedStudent === "object" ? obj.detectedStudent : {};
+  const detNoM = /\d{4}/.exec(String(rawDet.examNo || "").trim());
+  const detectedStudent = {
+    examNo: detNoM ? detNoM[0] : "",
+    name: String(rawDet.name || "").trim().slice(0, 32),
+    department: String(rawDet.department || "").trim().slice(0, 40),
+  };
 
   return {
     score,
@@ -665,6 +681,7 @@ export function normalizeAiGradingResult(raw, { subject, pagesMeta = [], model =
     annotationsByPageNo,
     model,
     wrongCount: cleanItems.filter((it) => it.wrong).length,
+    detectedStudent,
   };
 }
 

@@ -1,8 +1,9 @@
 /* GoutouStdio 智考中心 (/exam)：
+   - 紧凑 App Shell 侧栏工作台 + 未登录极简登录 / 自动 4 位考号注册卡片
    - 成绩报告（总分/排名/超越率/双层能力雷达图/历次趋势/小题得分细目）
-   - 电子试卷查看器（缩放/旋转/红笔批改图层）
-   - 错题本（自动归集/复盘笔记/已掌握标记）
-   - 考务管理（考试配置/单人&批量录分/扫描全能王上传与红笔批改/考情分析CSV/4位考号用户增删改） */
+   - 电子试卷查看器（缩放/旋转/红笔批改图层/智学网双栏 AI 阅卷批改明细/删除单页或清空原卷）
+   - 错题本（自动归集/复盘笔记/已掌握标记/删除错题）
+   - 考务工作台（考试配置+照片/PDF识卷 / 录分与扫卷+删除成绩&原卷 / 考情分析CSV / 自动考号分配与成员管理） */
 (function () {
   "use strict";
 
@@ -10,10 +11,14 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var root = $("#exam-root");
   var idCard = $("#exam-id-card");
-  var tabsNav = $("#exam-tabs");
-  var tabBtns = Array.prototype.slice.call(tabsNav.querySelectorAll("[role=tab]"));
-  var adminTabBtn = $("#tab-admin");
+  var shell = $("#exam-shell");
+  var sidebar = $("#exam-sidebar");
+  var adminNav = $("#exam-admin-nav");
+  var navBtns = Array.prototype.slice.call(sidebar.querySelectorAll(".exam-nav-item[data-tab]"));
   var mistakeBadge = $("#mistake-count");
+
+  var OFFICIAL_DEPTS = ["管理部", "内核开发部", "自行车动作部", "软件部", "游戏部"];
+  var VALID_TABS = ["report", "papers", "mistakes", "admin-exams", "admin-scoring", "admin-analytics", "admin-users"];
 
   var state = {
     me: null,
@@ -22,7 +27,6 @@
     selectedExamId: 0,
     previewUserQuery: null, // { examNo?, userId? }
     activeTab: "report",
-    adminSubTab: "exams",
     paperFilterExamId: 0,
     paperFilterSubId: 0,
   };
@@ -41,6 +45,30 @@
     else cls += "grade-d";
     return el("span", { class: cls, text: g || "—" });
   }
+  function copyText(txt, okMsg) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () {
+        GS.toast(okMsg || "已复制到剪贴板");
+      }).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+    function fallbackCopy() {
+      var ta = document.createElement("textarea");
+      ta.value = txt;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        GS.toast(okMsg || "已复制到剪贴板");
+      } catch (_e) {
+        GS.toast("请手动复制凭证内容");
+      }
+      ta.remove();
+    }
+  }
 
   function svgEl(tag, attrs, children) {
     var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -49,66 +77,54 @@
     return n;
   }
 
+  function mapLegacyTab(t) {
+    if (t === "admin") return "admin-exams";
+    return VALID_TABS.indexOf(t) !== -1 ? t : "report";
+  }
+
   function parseInitialTab() {
     var h = location.hash.replace(/^#/, "").trim();
-    if (["report", "papers", "mistakes", "admin"].indexOf(h) !== -1) return h;
+    if (h) return mapLegacyTab(h);
     var seg = location.pathname.replace(/^\/exam\/?/, "").split("/")[0];
-    if (["report", "papers", "mistakes", "admin"].indexOf(seg) !== -1) return seg;
+    if (seg) return mapLegacyTab(seg);
     return "report";
   }
 
   function switchTab(tab, opts) {
-    if (tab === "admin" && (!state.me || state.me.role !== "admin")) tab = "report";
-    if (["report", "papers", "mistakes", "admin"].indexOf(tab) === -1) tab = "report";
+    tab = mapLegacyTab(tab);
+    if (tab.indexOf("admin-") === 0 && (!state.me || state.me.role !== "admin")) tab = "report";
     state.activeTab = tab;
     if (opts && opts.examId) state.selectedExamId = Number(opts.examId);
     if (opts && opts.paperSubId) state.paperFilterSubId = Number(opts.paperSubId);
-    tabBtns.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === tab)); });
+    navBtns.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === tab)); });
     history.replaceState(null, "", "/exam#" + tab);
     renderActiveTab();
   }
-  tabBtns.forEach(function (b) {
+  navBtns.forEach(function (b) {
     b.addEventListener("click", function () { switchTab(b.dataset.tab); });
   });
 
-  /* ---------- 1. 身份卡片 ---------- */
+  /* ---------- 1. 顶部紧凑用户状态条 ---------- */
   function renderIdCard() {
     idCard.textContent = "";
     if (!state.me) {
-      idCard.append(
-        el("div", { class: "exam-id-top" },
-          el("span", { class: "avatar avatar-lg", style: "--h:250", text: "G" }),
-          el("div", { class: "exam-id-meta" },
-            el("div", { class: "exam-id-name", text: "未登录 GoutouStdio 账号" }),
-            el("div", { class: "exam-id-sub", text: "支持用户名、邮箱或 4 位数字考号（如 0413）登录" }),
-          ),
-        ),
-        el("div", { class: "form-actions", style: "margin-top:1rem" },
-          el("a", { class: "btn btn-primary", href: "/login?next=" + encodeURIComponent(location.pathname + location.hash), text: "立即登录" }),
-          el("a", { class: "btn", href: "/register", text: "注册账号" }),
-        ),
-      );
+      idCard.append(el("span", { class: "small muted", text: "未登录 · 支持 4 位考号直登或自动领取考号" }));
       return;
     }
     var u = state.examMe.user;
     var st = state.examMe.stats;
     idCard.append(
-      el("div", { class: "exam-id-top" },
-        GS.avatar(u.username, "avatar-lg"),
-        el("div", { class: "exam-id-meta" },
-          el("div", { class: "exam-id-name" },
-            el("span", { text: u.displayName || u.username }),
-            el("span", { class: "exam-no-pill", text: u.examNo ? "考号 " + u.examNo : "未分配考号" }),
-            u.role === "admin" ? label("管理员", "accent") : null,
-          ),
-          el("div", { class: "exam-id-sub", text: "@" + u.username + (u.department ? " · " + u.department : "") }),
-        ),
+      GS.avatar(u.username, "avatar-sm"),
+      el("div", { class: "exam-user-meta" },
+        el("b", { style: "color:var(--pg-fg-1)", text: u.displayName || u.username }),
+        el("span", { class: "exam-no-pill", text: u.examNo ? "考号 " + u.examNo : "未分配考号" }),
+        u.department ? el("span", { text: u.department }) : null,
+        u.role === "admin" ? label("管理员", "accent") : null,
       ),
-      el("dl", { class: "exam-id-stats" },
-        el("div", null, el("dt", { text: "参考场次" }), el("dd", { text: String(st.examCount) })),
-        el("div", null, el("dt", { text: "平均得分率" }), el("dd", { text: st.examCount ? st.avgRate + "%" : "—" })),
-        el("div", null, el("dt", { text: "待巩固错题" }), el("dd", { text: String(st.mistakePending) })),
-      ),
+      el("span", {
+        class: "exam-user-stat",
+        text: "参考 " + st.examCount + " 场 · 均率 " + (st.examCount ? st.avgRate + "%" : "—") + " · 待巩固 " + st.mistakePending,
+      }),
     );
     if (st.mistakePending > 0) {
       mistakeBadge.textContent = String(st.mistakePending);
@@ -118,11 +134,165 @@
     }
   }
 
+  /* ---------- 1b. 未登录极简居中认证与自动考号领取卡片 ---------- */
+  function renderGuestAuth() {
+    shell.classList.add("is-guest");
+    sidebar.hidden = true;
+    root.textContent = "";
+
+    var wrap = el("div", { class: "exam-auth-wrap" });
+    var card = el("div", { class: "exam-auth-card" });
+    wrap.append(card);
+    root.append(wrap);
+
+    GS.api("GET", "/api/exam/public/config").catch(function () {
+      return { departments: OFFICIAL_DEPTS, selfRegisterEnabled: true };
+    }).then(function (cfg) {
+      var depts = (cfg && Array.isArray(cfg.departments) && cfg.departments.length) ? cfg.departments : OFFICIAL_DEPTS;
+      var canSelfReg = !cfg || cfg.selfRegisterEnabled !== false;
+      var mode = "login"; // login | register
+
+      function draw() {
+        card.textContent = "";
+        card.append(
+          el("div", null,
+            el("h2", { style: "margin:0;font-size:1.05rem;font-weight:600", text: "进入智考中心" }),
+            el("p", {
+              class: "small muted",
+              style: "margin:.25rem 0 0",
+              text: canSelfReg ? "使用 4 位考号登录，或填写姓名与部门自动领取专属考号" : "请使用成员账号或管理员分配的 4 位考号登录",
+            }),
+          ),
+        );
+
+        if (canSelfReg) {
+          card.append(el("div", { class: "exam-seg" },
+            el("button", {
+              type: "button",
+              class: mode === "login" ? "is-active" : "",
+              text: "考号 / 账号登录",
+              onclick: function () { mode = "login"; draw(); },
+            }),
+            el("button", {
+              type: "button",
+              class: mode === "register" ? "is-active" : "",
+              text: "自动分配考号注册",
+              onclick: function () { mode = "register"; draw(); },
+            }),
+          ));
+        }
+
+        if (mode === "login") {
+          var idInp = el("input", { type: "text", placeholder: "输入 4 位考号（如 0413）/ 用户名 / 邮箱", autocomplete: "username", required: true });
+          var pwInp = el("input", { type: "password", placeholder: "初始密码默认与 4 位考号相同", autocomplete: "current-password", required: true });
+          var subBtn = el("button", { type: "submit", class: "btn btn-primary btn-block", text: "登录智考中心" });
+          var form = el("form", { style: "display:grid;gap:.85rem" },
+            el("div", { class: "field" }, el("label", { text: "4 位考号 / 用户名 / 邮箱" }), idInp),
+            el("div", { class: "field", style: "margin-top:0" }, el("label", { text: "密码" }), pwInp),
+            subBtn,
+          );
+          form.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var done = GS.busy(subBtn, "登录中…");
+            GS.api("POST", "/api/login", { identifier: idInp.value.trim(), password: pwInp.value }).then(function (r) {
+              if (r && r.mfa === "totp") {
+                location.href = "/login?next=/exam";
+              } else {
+                location.reload();
+              }
+            }).catch(function (err) {
+              done();
+              GS.flash(form, (err && err.message) || "登录失败");
+            });
+          });
+          card.append(
+            form,
+            el("div", { class: "small muted", style: "text-align:center" },
+              el("a", { href: "/login?next=/exam", text: "使用 Passkey / 两步验证完整登录页 →" }),
+            ),
+          );
+          return;
+        }
+
+        var nameInp = el("input", { type: "text", maxlength: "32", placeholder: "请输入真实全名（如：马俊宇）", required: true });
+        var deptSel = el("select", null,
+          depts.map(function (d) { return el("option", { value: d, text: d }); }),
+        );
+        var regBtn = el("button", { type: "submit", class: "btn btn-primary btn-block", text: "立即分配 4 位考号并注册" });
+        var regForm = el("form", { style: "display:grid;gap:.85rem" },
+          el("p", {
+            class: "small muted",
+            style: "margin:0",
+            text: "提交后将随机分配一个未占用的 4 位数字考号，并自动注册「用户名 = ID = 密码 = 该 4 位考号」的考生账号。",
+          }),
+          el("div", { class: "field" }, el("label", { text: "全名" }), nameInp),
+          el("div", { class: "field", style: "margin-top:0" }, el("label", { text: "所属部门" }), deptSel),
+          regBtn,
+        );
+
+        regForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var fullName = nameInp.value.trim();
+          if (!fullName) {
+            GS.flash(regForm, "请填写全名");
+            nameInp.focus();
+            return;
+          }
+          var done = GS.busy(regBtn, "分配考号中…");
+          GS.api("POST", "/api/exam/public/auto-register", {
+            fullName: fullName,
+            department: deptSel.value,
+          }).then(function (res) {
+            var c = res.credentials;
+            var credText = [
+              "GoutouStdio 智考中心凭证",
+              "姓名：" + c.fullName,
+              "部门：" + c.department,
+              "4 位考号：" + c.examNo,
+              "用户 ID：" + c.id,
+              "用户名：" + c.username,
+              "初始密码：" + c.password,
+            ].join("\n");
+
+            card.textContent = "";
+            card.append(
+              el("div", null,
+                el("h2", { style: "margin:0;font-size:1.05rem;font-weight:600", text: "🎉 已为你分配专属 4 位考号" }),
+                el("p", { class: "small muted", style: "margin:.25rem 0 0", text: "账号已自动创建并登录，请妥善保存以下考号凭证。" }),
+              ),
+              el("div", { class: "exam-cred-box" },
+                el("div", { class: "exam-cred-grid" },
+                  el("div", null, el("span", { class: "muted", text: "全名" }), el("code", { text: c.fullName })),
+                  el("div", null, el("span", { class: "muted", text: "部门" }), el("code", { text: c.department })),
+                  el("div", null, el("span", { class: "muted", text: "4 位考号" }), el("code", { text: c.examNo })),
+                  el("div", null, el("span", { class: "muted", text: "用户 ID" }), el("code", { text: String(c.id) })),
+                  el("div", null, el("span", { class: "muted", text: "登录用户名" }), el("code", { text: c.username })),
+                  el("div", null, el("span", { class: "muted", text: "初始密码" }), el("code", { text: c.password })),
+                ),
+                el("div", { class: "small muted", text: "下次可直接使用考号「" + c.examNo + "」作为用户名与初始密码登录。" }),
+              ),
+              el("div", { class: "row", style: "justify-content:space-between" },
+                el("button", { type: "button", class: "btn", text: "复制考号凭证", onclick: function () { copyText(credText, "考号凭证已复制"); } }),
+                el("button", { type: "button", class: "btn btn-primary", text: "进入智考中心 →", onclick: function () { location.reload(); } }),
+              ),
+            );
+          }).catch(function (err) {
+            done();
+            GS.flash(regForm, (err && err.message) || "自动注册失败");
+          });
+        });
+
+        card.append(regForm);
+      }
+
+      draw();
+    });
+  }
+
   /* ---------- 2. Crisp SVG 双层雷达图 & 趋势折线图 ---------- */
   function renderRadarChart(axes, container) {
     container.textContent = "";
     if (!axes || axes.length < 3) {
-      // 少于 3 维时退化为双层水平条，保证可读
       if (!axes || !axes.length) {
         container.append(el("p", { class: "muted small", text: "至少配置 3 个科目或 3 类知识点标签即可生成能力雷达图。" }));
         return;
@@ -162,7 +332,6 @@
       return { x: cx + Math.cos(ang) * rad, y: cy + Math.sin(ang) * rad, ang: ang };
     }
 
-    // 网格圈 20/40/60/80/100
     [20, 40, 60, 80, 100].forEach(function (lv) {
       var pts = axes.map(function (_a, i) { var p = ptAt(i, lv); return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
       svg.appendChild(svgEl("polygon", {
@@ -171,7 +340,6 @@
       }));
     });
 
-    // 轴线与标签
     axes.forEach(function (a, i) {
       var edge = ptAt(i, 100);
       svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: edge.x.toFixed(1), y2: edge.y.toFixed(1), stroke: "var(--pg-line-2)", "stroke-width": "0.9" }));
@@ -185,14 +353,12 @@
       svg.appendChild(txt);
     });
 
-    // 群体均分多边形（虚线）
     var avgPts = axes.map(function (a, i) { var p = ptAt(i, a.avg); return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
     svg.appendChild(svgEl("polygon", {
       points: avgPts, fill: "color-mix(in srgb, var(--pg-brand-2) 10%, transparent)",
       stroke: "var(--pg-brand-2)", "stroke-width": "1.8", "stroke-dasharray": "5 4",
     }));
 
-    // 个人多边形（紫青渐变）
     var minePts = axes.map(function (a, i) { var p = ptAt(i, a.mine); return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
     svg.appendChild(svgEl("polygon", {
       points: minePts, fill: "url(#radarFill)", stroke: "url(#radarStroke)", "stroke-width": "2.4",
@@ -271,14 +437,14 @@
     });
   }
 
-  /* ---------- 3. Tab 1：成绩报告（类智学网） ---------- */
+  /* ---------- 3. 成绩报告 ---------- */
   function renderReportTab() {
     root.textContent = "";
     if (!state.exams.length) {
       root.append(el("div", { class: "box" }, el("div", { class: "blankslate" },
         icon("graph"), el("h3", { text: "还没有已发布的考试" }),
-        el("p", { text: state.me.role === "admin" ? "请前往「考务管理」创建考试并发布成绩。" : "请等待管理员发布考试成绩。" }),
-        state.me.role === "admin" ? el("button", { type: "button", class: "btn btn-primary", text: "前往考务管理", onclick: function () { switchTab("admin"); } }) : null,
+        el("p", { text: state.me.role === "admin" ? "请前往左侧「考试管理」创建考试并发布成绩。" : "请等待管理员发布考试成绩。" }),
+        state.me.role === "admin" ? el("button", { type: "button", class: "btn btn-primary", text: "前往考试管理", onclick: function () { switchTab("admin-exams"); } }) : null,
       )));
       return;
     }
@@ -314,7 +480,7 @@
       }
     }
 
-    var content = el("div");
+    var content = el("div", { style: "display:grid;gap:1rem" });
     root.append(el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, sel), barRight), content);
 
     function loadAndDraw() {
@@ -330,13 +496,12 @@
         var ov = rep.overview;
 
         if (state.me.role === "admin" && rep.targetUser.id !== state.me.id) {
-          content.append(el("div", { class: "flash flash-info", style: "margin-bottom:1rem" },
+          content.append(el("div", { class: "flash flash-info" },
             icon("info"),
             el("div", { text: "当前正在以管理员视角预览考生：" + (rep.targetUser.displayName || rep.targetUser.username) + (rep.targetUser.examNo ? "（考号 " + rep.targetUser.examNo + "）" : "") + " 的报告。" }),
           ));
         }
 
-        // KPI 卡片
         var kpiTotal = el("div", { class: "v" },
           el("span", { class: "js-count", text: mine.hasRecord && !mine.absent ? String(mine.totalScore) : (mine.absent ? "缺考" : "—") }),
           mine.hasRecord && !mine.absent ? el("small", { text: " / " + mine.fullScore }) : null,
@@ -346,29 +511,28 @@
         var kpiBench = el("div", { class: "v" }, String(ov.avgTotal), el("small", { text: " / 最高 " + ov.maxTotal }));
 
         content.append(el("div", { class: "exam-kpi-grid" },
-          el("div", { class: "exam-kpi spot" },
+          el("div", { class: "exam-kpi" },
             el("div", { class: "k" }, el("span", { text: "个人总分" }), gradeBadge(mine.grade)),
             kpiTotal,
             el("div", { class: "sub", text: mine.hasRecord && !mine.absent ? "综合得分率 " + mine.rate + "%" : "等待录分" }),
           ),
-          el("div", { class: "exam-kpi spot" },
+          el("div", { class: "exam-kpi" },
             el("div", { class: "k" }, el("span", { text: "全员排名 & 超越率" })),
             kpiRank,
             el("div", { class: "sub", text: mine.hasRecord && !mine.absent ? "超越了 " + mine.beatPct + "% 的参考成员（共 " + ov.totalParticipants + " 人）" : "参考总人数 " + ov.totalParticipants + " 人" }),
           ),
-          el("div", { class: "exam-kpi spot" },
+          el("div", { class: "exam-kpi" },
             el("div", { class: "k" }, el("span", { text: "部门内位置" })),
             kpiDept,
-            el("div", { class: "sub", text: rep.targetUser.department ? "所属部门：" + rep.targetUser.department : "可在用户资料中设置部门" }),
+            el("div", { class: "sub", text: rep.targetUser.department ? "所属部门：" + rep.targetUser.department : "可在成员管理中设置部门" }),
           ),
-          el("div", { class: "exam-kpi spot" },
+          el("div", { class: "exam-kpi" },
             el("div", { class: "k" }, el("span", { text: "全员基准（均分 / 最高）" })),
             kpiBench,
             el("div", { class: "sub", text: "及格率 " + ov.passRate + "% · 优秀率 " + ov.excellentRate + "%" }),
           ),
         ));
 
-        // 诊断横幅
         var diagTags = el("div", { class: "exam-diag-tags" },
           rep.diagnosis.strong.map(function (d) { return label("优势：" + d.name + " (+" + d.diff + "%)", "success"); }),
           rep.diagnosis.weak.map(function (d) { return label("待提升：" + d.name + " (" + d.diff + "%)", "attention"); }),
@@ -378,11 +542,10 @@
           diagTags,
         ));
 
-        // 雷达图 + 趋势图
         var radarBox = el("div", { class: "chart-svg-wrap" });
         var trendBox = el("div", { class: "chart-svg-wrap" });
         content.append(el("div", { class: "exam-charts-grid" },
-          el("div", { class: "exam-card spot" },
+          el("div", { class: "exam-card" },
             el("div", { class: "exam-card-head" },
               el("h2", { text: "多维能力雷达图" }),
               el("div", { class: "chart-legend" },
@@ -392,7 +555,7 @@
             ),
             radarBox,
           ),
-          el("div", { class: "exam-card spot" },
+          el("div", { class: "exam-card" },
             el("div", { class: "exam-card-head" },
               el("h2", { text: "历次考核趋势" }),
               el("div", { class: "chart-legend" },
@@ -406,7 +569,6 @@
         renderRadarChart(rep.radar, radarBox);
         renderTrendChart(state.examMe.trends, trendBox);
 
-        // 各科成绩对比条
         var cmpList = el("div", { class: "sub-compare-list" });
         rep.subjects.forEach(function (s) {
           var myRate = s.mine && !s.mine.absent ? s.mine.rate : 0;
@@ -434,12 +596,11 @@
             ),
           ));
         });
-        content.append(el("div", { class: "exam-card spot" },
+        content.append(el("div", { class: "exam-card" },
           el("div", { class: "exam-card-head" }, el("h2", { text: "各科得分与群体对照" })),
           cmpList,
         ));
 
-        // 得分细目表（小题分）
         rep.subjects.forEach(function (s) {
           var card = el("div", { class: "exam-card subject-detail-card" },
             el("div", { class: "exam-card-head" },
@@ -473,7 +634,6 @@
           content.append(card);
         });
 
-        // GSAP 数字滚动增强（渐进增强）
         if (window.gsap && mine.hasRecord && !mine.absent) {
           var targetEl = kpiTotal.querySelector(".js-count");
           var endVal = Number(mine.totalScore);
@@ -526,7 +686,7 @@
     });
   }
 
-  /* ---------- 5. Tab 2：电子试卷查看器 ---------- */
+  /* ---------- 5. 答题卡与原卷查看器 ---------- */
   function renderPapersTab() {
     root.textContent = "";
     if (!state.exams.length) {
@@ -552,7 +712,11 @@
     var showAnn = true;
 
     function loadExamPapers() {
-      var q = state.me.role === "admin" && state.previewUserQuery?.examNo ? "?examNo=" + encodeURIComponent(state.previewUserQuery.examNo) : "";
+      var q = "";
+      if (state.me.role === "admin" && state.previewUserQuery) {
+        if (state.previewUserQuery.examNo) q = "?examNo=" + encodeURIComponent(state.previewUserQuery.examNo);
+        else if (state.previewUserQuery.userId) q = "?userId=" + encodeURIComponent(state.previewUserQuery.userId);
+      }
       GS.api("GET", "/api/exam/exams/" + state.paperFilterExamId + "/report" + q).then(function (rep) {
         repCache = rep;
         subSel.replaceChildren.apply(subSel, rep.subjects.map(function (s) {
@@ -582,7 +746,7 @@
           el("h3", { text: "该科目暂未上传电子扫描试卷" }),
           el("p", { text: state.me.role === "admin" ? "可以直接用手机拍照或导入图片，使用内置扫描全能王转换并上传。" : "管理员上传并发布扫描试卷后，可在此高清查看原卷与批改痕迹。" }),
           state.me.role === "admin" && sub ? el("button", {
-            type: "button", class: "btn btn-primary", text: "📷 手机拍卷扫描并提交成绩（管理员）",
+            type: "button", class: "btn btn-primary", text: "📷 拍卷扫描并提交成绩（管理员）",
             onclick: function () {
               ExamScanner.open({
                 isAdmin: true,
@@ -631,20 +795,28 @@
         text: "🤖 AI 自动批改答题卡",
         onclick: function () {
           var done = GS.busy(aiTriggerBtn, "AI 批改中…");
-          GS.api("POST", "/api/exam/admin/ai-grade", {
+          ExamScanner.runAiGradeWithConfirm({
             examId: repCache.exam.id,
             subjectId: sub.id,
             userId: repCache.targetUser.id,
             applyAnnotations: true,
             autoSave: true,
           }).then(function (r) {
-            GS.toast("AI 批改完成：" + r.grading.score + " / " + r.grading.fullScore + " 分");
+            if (!r || !r.confirmed) {
+              GS.toast("已取消本次成绩入库");
+              return;
+            }
+            if (r.targetUser && r.targetUser.id !== repCache.targetUser.id) {
+              state.previewUserQuery = { userId: r.targetUser.id, examNo: r.targetUser.examNo };
+            }
+            var who = r.targetUser ? (r.targetUser.displayName || r.targetUser.username) : (repCache.targetUser.displayName || repCache.targetUser.username);
+            GS.toast("AI 批改已保存至「" + who + "」：" + r.grading.score + " / " + r.grading.fullScore + " 分");
             loadExamPapers();
-          }).catch(function (err) { done(); fail(err); });
+          }).catch(fail).finally(done);
         },
       }) : null;
 
-      var tools = el("div", { class: "exam-bar", style: "margin-bottom:.6rem" },
+      var tools = el("div", { class: "exam-bar", style: "margin-bottom:.2rem" },
         el("div", { class: "exam-bar-left" },
           el("button", { type: "button", class: "btn btn-sm", text: "放大 +", onclick: function () { zoom = Math.min(3, Math.round((zoom + 0.25) * 100) / 100); applyTransform(); } }),
           el("button", { type: "button", class: "btn btn-sm", text: "缩小 -", onclick: function () { zoom = Math.max(0.5, Math.round((zoom - 0.25) * 100) / 100); applyTransform(); } }),
@@ -680,10 +852,43 @@
               });
             },
           }),
+          el("button", {
+            type: "button", class: "btn btn-sm btn-danger", text: "删除本页",
+            onclick: function () {
+              GS.dialog({
+                title: "删除第 " + page.pageNo + " 页扫描件",
+                danger: true,
+                confirm: "确认删除",
+                text: "删除后不可恢复，确定删除该页答题卡原卷？",
+              }).then(function (ok) {
+                if (!ok) return;
+                return GS.api("DELETE", "/api/exam/admin/papers/" + page.id).then(function () {
+                  GS.toast("已删除第 " + page.pageNo + " 页原卷");
+                  loadExamPapers();
+                });
+              }).catch(fail);
+            },
+          }),
+          pages.length > 1 ? el("button", {
+            type: "button", class: "btn btn-sm btn-danger", text: "清空本科原卷",
+            onclick: function () {
+              GS.dialog({
+                title: "清空「" + sub.name + "」全部原卷",
+                danger: true,
+                confirm: "全部删除",
+                text: "将永久删除该考生在此科目的全部 " + pages.length + " 页扫描原卷。",
+              }).then(function (ok) {
+                if (!ok) return;
+                return GS.api("DELETE", "/api/exam/admin/papers?examId=" + repCache.exam.id + "&subjectId=" + sub.id + "&userId=" + repCache.targetUser.id).then(function (r) {
+                  GS.toast("已清空 " + (r.deleted || pages.length) + " 页原卷");
+                  loadExamPapers();
+                });
+              }).catch(fail);
+            },
+          }) : null,
         ) : null,
       );
 
-      // 智学网式右侧「小题得分 & AI/教师批改明细对照」
       var items = (sub.mine && Array.isArray(sub.mine.items)) ? sub.mine.items : [];
       var gradeListHost = el("div", { class: "paper-grade-list" });
       var filterAllBtn = el("button", { type: "button", class: "btn btn-sm is-on", text: "全部 (" + items.length + ")" });
@@ -728,7 +933,7 @@
           el("h3", { text: "小题得分与批改明细" }),
           sub.mine ? label(sub.mine.absent ? "缺考" : (sub.mine.score + " / " + sub.fullScore + " 分 · " + sub.mine.grade), sub.mine.absent ? "danger" : "accent") : label("未出分"),
         ),
-        sub.mine && sub.mine.teacherComment ? el("div", { class: "teacher-comment", text: sub.mine.teacherComment }) : false,
+        sub.mine && sub.mine.teacherComment ? el("div", { class: "teacher-note", style: "padding:.55rem .75rem;border-radius:var(--ui-r);background:var(--pg-bg-sunken);border-left:3px solid var(--pg-accent);font-size:var(--pg-text-xs)", text: sub.mine.teacherComment }) : false,
         items.length ? el("div", { class: "row" }, filterAllBtn, filterWrongBtn) : false,
         gradeListHost,
       );
@@ -816,7 +1021,7 @@
     dlg.showModal();
   }
 
-  /* ---------- 6. Tab 3：自动错题本 ---------- */
+  /* ---------- 6. 自动错题本 ---------- */
   function renderMistakesTab() {
     root.textContent = "";
     var exFilter = el("select", { style: "max-width:16rem", "aria-label": "按考试筛选" },
@@ -846,7 +1051,12 @@
         d.mistakes.forEach(function (m) {
           var ta = el("textarea", { placeholder: "记录错因、正确思路或下次注意要点…", value: m.reflection });
           ta.value = m.reflection || "";
-          var ansBox = el("div", { class: "teacher-note", hidden: true, text: "参考解析：" + (m.answer || "管理员暂未填写参考解析") });
+          var ansBox = el("div", {
+            class: "small",
+            style: "padding:.55rem .75rem;border-radius:var(--ui-r);background:var(--pg-bg-sunken);border-left:3px solid var(--pg-accent)",
+            hidden: true,
+            text: "参考解析：" + (m.answer || "管理员暂未填写参考解析"),
+          });
 
           var card = el("article", { class: "mistake-card" + (m.mastered ? " is-mastered" : "") },
             el("div", { class: "mistake-head" },
@@ -872,6 +1082,23 @@
                   GS.api("PATCH", "/api/exam/mistakes/" + m.id, { mastered: !m.mastered }).then(function () {
                     GS.toast(m.mastered ? "已移回待巩固" : "已标记为掌握");
                     refreshIdentityAndLoad();
+                  }).catch(fail);
+                },
+              }),
+              el("button", {
+                type: "button", class: "btn btn-sm btn-danger", text: "删除错题",
+                onclick: function () {
+                  GS.dialog({
+                    title: "移除错题记录",
+                    danger: true,
+                    confirm: "删除",
+                    text: "确定从错题本中删除这道题的记录吗？",
+                  }).then(function (ok) {
+                    if (!ok) return;
+                    return GS.api("DELETE", "/api/exam/mistakes/" + m.id).then(function () {
+                      GS.toast("错题记录已删除");
+                      refreshIdentityAndLoad();
+                    });
                   }).catch(fail);
                 },
               }),
@@ -906,45 +1133,9 @@
     load();
   }
 
-  /* ---------- 7. Tab 4：管理员考务工作台 ---------- */
-  function renderAdminTab() {
-    root.textContent = "";
-    var subHost = el("div");
-    var subTabs = [
-      { id: "exams", label: "考试管理" },
-      { id: "scoring", label: "成绩录入与拍图扫卷" },
-      { id: "analytics", label: "考情分析与排名" },
-      { id: "users", label: "用户与 4 位考号管理" },
-    ];
-    var nav = el("div", { class: "admin-subtabs" },
-      subTabs.map(function (t) {
-        return el("button", {
-          type: "button",
-          class: "btn " + (state.adminSubTab === t.id ? "is-active" : ""),
-          text: t.label,
-          onclick: function () {
-            state.adminSubTab = t.id;
-            nav.querySelectorAll("button").forEach(function (b, idx) {
-              b.classList.toggle("is-active", subTabs[idx].id === state.adminSubTab);
-            });
-            drawSub();
-          },
-        });
-      }));
-    root.append(nav, subHost);
-
-    function drawSub() {
-      subHost.textContent = "";
-      if (state.adminSubTab === "exams") renderAdminExams(subHost);
-      else if (state.adminSubTab === "scoring") renderAdminScoring(subHost);
-      else if (state.adminSubTab === "analytics") renderAdminAnalytics(subHost);
-      else renderAdminUsers(subHost);
-    }
-    drawSub();
-  }
-
-  /* ---- 子页 A：考试管理 ---- */
+  /* ---------- 7A. 考务：考试管理 ---------- */
   function renderAdminExams(host) {
+    host.textContent = "";
     host.append(
       el("div", { class: "exam-bar" },
         el("div", { class: "exam-bar-left" }, el("span", { class: "muted small", text: "共 " + state.exams.length + " 场考试（草稿仅管理员可见，发布后员工可查）" })),
@@ -975,14 +1166,10 @@
         el("td", { style: "font-family:var(--pg-font-mono)", text: ex.totalParticipants + " 人 · 均分 " + ex.avgTotal + " · 试卷 " + ex.paperCount + " 页" }),
         el("td", null, el("div", { class: "row" },
           el("button", { type: "button", class: "btn btn-sm", text: "录分/扫卷", onclick: function () {
-            state.selectedExamId = ex.id;
-            state.adminSubTab = "scoring";
-            renderAdminTab();
+            switchTab("admin-scoring", { examId: ex.id });
           } }),
           el("button", { type: "button", class: "btn btn-sm", text: "考情", onclick: function () {
-            state.selectedExamId = ex.id;
-            state.adminSubTab = "analytics";
-            renderAdminTab();
+            switchTab("admin-analytics", { examId: ex.id });
           } }),
           el("button", { type: "button", class: "btn btn-sm", text: ex.status === "published" ? "转回草稿" : "发布成绩", onclick: function () {
             var nextStatus = ex.status === "published" ? "draft" : "published";
@@ -1132,7 +1319,6 @@
     var rankChk = el("input", { type: "checkbox", checked: !existing || existing.showRank });
     var subHost = el("div");
 
-    // 试卷自动识别区（文档解析 PDF/DOCX/TXT/MD + DeepSeek Vision 拍照多图识卷）
     var parseState = {
       parsed: null,
       structMode: "single",
@@ -1145,12 +1331,6 @@
       accept: ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown",
       hidden: true,
     });
-    var photoCamInput = el("input", {
-      type: "file",
-      accept: "image/*",
-      capture: "environment",
-      hidden: true,
-    });
     var photoAlbumInput = el("input", {
       type: "file",
       accept: "image/jpeg,image/png,image/webp,image/*",
@@ -1158,21 +1338,11 @@
       hidden: true,
     });
 
-    var pickDocBtn = el("button", {
-      type: "button",
-      class: "btn btn-sm",
-      onclick: function () { docInput.click(); },
-    }, icon("layers"), "传文档 (PDF/Word)");
-    var takePhotoBtn = el("button", {
-      type: "button",
-      class: "btn btn-sm",
-      onclick: function () { photoCamInput.click(); },
-    }, icon("phone"), "拍照识卷");
     var pickPhotosBtn = el("button", {
       type: "button",
       class: "btn btn-sm btn-primary",
       onclick: function () { photoAlbumInput.click(); },
-    }, icon("plus"), "选试卷照片 (AI)");
+    }, icon("plus"), "📷 选试卷/答案照片 (AI)");
     var scanCropAiBtn = el("button", {
       type: "button",
       class: "btn btn-sm",
@@ -1181,19 +1351,20 @@
         ExamScanner.open({
           isAdmin: true,
           mode: "extract",
-          onExtract: function (pagesOut) {
-            submitPhotosToAI(pagesOut);
-          },
+          onExtract: function (pagesOut) { submitPhotosToAI(pagesOut); },
         });
       },
-    }, icon("search"), "切边扫描后识别");
+    }, icon("search"), "切边扫描识卷");
+    var pickDocBtn = el("button", {
+      type: "button",
+      class: "btn btn-sm",
+      onclick: function () { docInput.click(); },
+    }, icon("layers"), "传 PDF / Word");
     var aiCfgToggleBtn = el("button", {
       type: "button",
       class: "btn btn-sm",
       text: "🔑 DeepSeek API",
-      onclick: function () {
-        aiCfgPanel.hidden = !aiCfgPanel.hidden;
-      },
+      onclick: function () { aiCfgPanel.hidden = !aiCfgPanel.hidden; },
     });
 
     var aiStatusBadge = label("检测 AI 配置中…");
@@ -1203,7 +1374,7 @@
     var aiSaveCfgBtn = el("button", { type: "button", class: "btn btn-sm btn-primary", text: "保存配置" });
     var aiCfgPanel = el("div", { class: "doc-ai-config", hidden: true },
       el("div", { class: "row", style: "justify-content:space-between" },
-        el("span", { class: "small", text: "拍照识卷使用 DeepSeek 多模态视觉接口（默认模型 deepseek-flash），不要求规范 PDF" }),
+        el("span", { class: "small", text: "拍照识卷支持手写试卷与独立标准答案页，默认调用 DeepSeek 视觉模型（deepseek-flash）" }),
         aiStatusBadge,
       ),
       el("div", { class: "doc-ai-grid" },
@@ -1223,7 +1394,7 @@
         ? "已配置 (" + cfg.maskedKey + " · " + cfg.model + ")"
         : "未配置 API Key";
       aiStatusBadge.className = "label " + (cfg.configured ? "ui-soft-success" : "ui-soft-attention");
-      aiCfgToggleBtn.textContent = cfg.configured ? "🔑 DeepSeek 已就绪" : "🔑 配置 DeepSeek API";
+      aiCfgToggleBtn.textContent = cfg.configured ? "🔑 DeepSeek 已就绪" : "🔑 配置 DeepSeek";
     }
 
     GS.api("GET", "/api/exam/admin/ai-config").then(function (r) {
@@ -1232,10 +1403,7 @@
 
     aiSaveCfgBtn.addEventListener("click", function () {
       var done = GS.busy(aiSaveCfgBtn, "保存中…");
-      var body = {
-        baseUrl: aiBaseInp.value.trim(),
-        model: aiModelInp.value.trim(),
-      };
+      var body = { baseUrl: aiBaseInp.value.trim(), model: aiModelInp.value.trim() };
       if (aiKeyInp.value.trim()) body.apiKey = aiKeyInp.value.trim();
       GS.api("PUT", "/api/exam/admin/ai-config", body).then(function (r) {
         aiKeyInp.value = "";
@@ -1244,15 +1412,17 @@
       }).catch(fail).finally(done);
     });
 
-    var docStatusEl = el("span", { class: "small muted", text: "支持直接拍照 / 多张试卷照片 (DeepSeek AI 自动识题型与分值，无需严格 PDF) 或上传文字版 PDF / Word (.docx) / TXT / MD" });
+    var docStatusEl = el("span", {
+      class: "small muted",
+      text: "支持手写试卷照片 + 独立手写标准答案页（支持多图同时选择合并识别），或拖拽 / 上传 PDF、Word (.docx)、TXT、MD",
+    });
     var docResultHost = el("div");
     var docBox = el("div", { class: "doc-import-box" },
       docInput,
-      photoCamInput,
       photoAlbumInput,
       el("div", { class: "doc-import-top" },
-        el("div", { class: "doc-import-title" }, icon("layers"), el("span", { text: "智能识卷（拍照 / 图片 / PDF / Word）" })),
-        el("div", { class: "row" }, pickPhotosBtn, takePhotoBtn, scanCropAiBtn, pickDocBtn, aiCfgToggleBtn),
+        el("strong", { class: "small", text: "智能识卷录入（照片 / 扫描件 / PDF / Word）" }),
+        el("div", { class: "doc-import-tabs" }, pickPhotosBtn, scanCropAiBtn, pickDocBtn, aiCfgToggleBtn),
       ),
       docStatusEl,
       aiCfgPanel,
@@ -1300,7 +1470,7 @@
       }
       parseState.busy = true;
       var done = GS.busy(pickPhotosBtn, "AI 识图中…");
-      docStatusEl.textContent = "正在调用 DeepSeek 识别 " + imagesArr.length + " 张试卷照片中的题型、小题分值与参考答案（约 5–20 秒）…";
+      docStatusEl.textContent = "正在调用 DeepSeek 识别 " + imagesArr.length + " 张试卷/答案照片中的题型、小题分值与参考答案…";
 
       var payload = { images: imagesArr };
       if (aiKeyInp.value.trim()) payload.apiKey = aiKeyInp.value.trim();
@@ -1338,7 +1508,6 @@
         docStatusEl.textContent = "图片预处理失败：" + ((err && err.message) || "");
         fail(err);
       }).finally(function () {
-        photoCamInput.value = "";
         photoAlbumInput.value = "";
       });
     }
@@ -1376,68 +1545,41 @@
       if (p.stats.answeredCount > 0) {
         pills.push(label("已匹配答案 " + p.stats.answeredCount + "/" + p.stats.totalQuestions + " 题", "success"));
       }
-      if (p.stats.hasSpecTable) {
-        pills.push(label("双向细目表 " + p.specChapters.length + " 章知识点", "accent"));
-      }
-      if (p.stats.skippedAnswerSheet) {
-        pills.push(label("已跳过答题卡"));
-      }
+      if (p.stats.hasSpecTable) pills.push(label("双向细目表 " + p.specChapters.length + " 章", "accent"));
+      if (p.stats.skippedAnswerSheet) pills.push(label("已跳过答题卡"));
 
       var modeSingleBtn = el("button", {
         type: "button",
         class: "btn btn-sm" + (parseState.structMode === "single" ? " btn-primary" : ""),
         text: "单科整卷（" + (p.subjectName || "综合") + "）",
-        onclick: function () {
-          parseState.structMode = "single";
-          applyParsedToForm(false);
-          renderDocResult();
-        },
+        onclick: function () { parseState.structMode = "single"; applyParsedToForm(false); renderDocResult(); },
       });
       var modeBySecBtn = el("button", {
         type: "button",
         class: "btn btn-sm" + (parseState.structMode === "by_section" ? " btn-primary" : ""),
         text: "按题型分科（" + (p.sections.length || 1) + " 科）",
-        onclick: function () {
-          parseState.structMode = "by_section";
-          applyParsedToForm(false);
-          renderDocResult();
-        },
+        onclick: function () { parseState.structMode = "by_section"; applyParsedToForm(false); renderDocResult(); },
       });
 
       var splitChk = hasSubQs
         ? el("input", {
           type: "checkbox",
           checked: parseState.splitSub,
-          onchange: function () {
-            parseState.splitSub = !!this.checked;
-            applyParsedToForm(false);
-            renderDocResult();
-          },
+          onchange: function () { parseState.splitSub = !!this.checked; applyParsedToForm(false); renderDocResult(); },
         })
         : null;
-
-      var rightAction = el("button", {
-        type: "button",
-        class: "btn btn-sm",
-        text: "重新填入标题与说明",
-        onclick: function () {
-          applyParsedToForm(true);
-          GS.toast("已重新应用文档识别结果");
-        },
-      });
 
       docResultHost.append(el("div", { class: "doc-import-result" },
         el("div", { class: "row", style: "justify-content:space-between" },
           el("strong", { class: "small", text: "已识别：" + (p.filename || "试卷文档") }),
-          rightAction,
+          el("button", {
+            type: "button", class: "btn btn-sm", text: "重新填入标题与说明",
+            onclick: function () { applyParsedToForm(true); GS.toast("已重新应用文档识别结果"); },
+          }),
         ),
         el("div", { class: "doc-import-pills" }, pills),
         el("div", { class: "doc-import-controls" },
-          el("div", { class: "row" },
-            el("span", { class: "small muted", text: "结构模式：" }),
-            modeSingleBtn,
-            modeBySecBtn,
-          ),
+          el("div", { class: "row" }, el("span", { class: "small muted", text: "结构模式：" }), modeSingleBtn, modeBySecBtn),
           splitChk ? el("label", { class: "scanner-check" }, splitChk, "大题按小问拆分（如 36(1)）") : false,
         ),
       ));
@@ -1445,9 +1587,7 @@
 
     function uploadDocFile(file) {
       if (!file || parseState.busy) return;
-      if (file.size > 12 * 1024 * 1024) {
-        return GS.toast("文档大小不能超过 12MB");
-      }
+      if (file.size > 12 * 1024 * 1024) return GS.toast("文档大小不能超过 12MB");
       parseState.busy = true;
       var done = GS.busy(pickDocBtn, "识别中…");
       docStatusEl.textContent = "正在解析「" + file.name + "」的题型结构与参考答案…";
@@ -1462,7 +1602,7 @@
           parseState.parsed = r.parsed;
           parseState.structMode = "single";
           parseState.splitSub = false;
-          docStatusEl.textContent = "解析完成：识别到 " + r.parsed.sections.length + " 种题型、共 " + r.parsed.stats.totalQuestions + " 题（总分 " + r.parsed.fullScore + " 分）。可在下方继续微调后保存。";
+          docStatusEl.textContent = "解析完成：识别到 " + r.parsed.sections.length + " 种题型、共 " + r.parsed.stats.totalQuestions + " 题（总分 " + r.parsed.fullScore + " 分）。请核对下方题目并保存。";
           applyParsedToForm(true);
           renderDocResult();
           GS.toast("已自动填入 " + r.parsed.stats.totalQuestions + " 道题目与配置");
@@ -1487,19 +1627,11 @@
     docInput.addEventListener("change", function () {
       if (docInput.files && docInput.files[0]) uploadDocFile(docInput.files[0]);
     });
-    photoCamInput.addEventListener("change", function () {
-      if (photoCamInput.files && photoCamInput.files.length) handlePhotoFiles(photoCamInput.files);
-    });
     photoAlbumInput.addEventListener("change", function () {
       if (photoAlbumInput.files && photoAlbumInput.files.length) handlePhotoFiles(photoAlbumInput.files);
     });
-    docBox.addEventListener("dragover", function (e) {
-      e.preventDefault();
-      docBox.classList.add("is-drag");
-    });
-    docBox.addEventListener("dragleave", function () {
-      docBox.classList.remove("is-drag");
-    });
+    docBox.addEventListener("dragover", function (e) { e.preventDefault(); docBox.classList.add("is-drag"); });
+    docBox.addEventListener("dragleave", function () { docBox.classList.remove("is-drag"); });
     docBox.addEventListener("drop", function (e) {
       e.preventDefault();
       docBox.classList.remove("is-drag");
@@ -1520,6 +1652,15 @@
 
         var countLabel = el("span", { class: "small muted" });
         var summaryHost = el("div", { class: "q-section-summary" });
+        var qHead = el("div", { class: "q-editor-head" },
+          el("span", { text: "题号" }),
+          el("span", { text: "题目描述" }),
+          el("span", { text: "题型" }),
+          el("span", { text: "知识点" }),
+          el("span", { text: "满分" }),
+          el("span", { text: "参考答案 / 评分标准" }),
+          el("span", { text: "删" }),
+        );
         var qWrap = el("div", { class: "q-editor-list" });
         if (s.expanded === false) qWrap.hidden = true;
 
@@ -1529,7 +1670,17 @@
           onclick: function () {
             s.expanded = qWrap.hidden;
             qWrap.hidden = !s.expanded;
+            qHead.hidden = qWrap.hidden || !s.questions.length;
             toggleQsBtn.textContent = s.expanded ? "收起小题" : "展开小题 (" + s.questions.length + ")";
+          },
+        });
+        var clearQsBtn = el("button", {
+          type: "button",
+          class: "btn btn-sm btn-danger",
+          text: "清空小题",
+          onclick: function () {
+            s.questions = [];
+            renderQs();
           },
         });
 
@@ -1538,6 +1689,8 @@
           countLabel.textContent = "小题模板（共 " + s.questions.length + " 题 · 合计 " + qSum + " 分 · 失分自动进错题本）";
           toggleQsBtn.hidden = s.questions.length <= 6;
           toggleQsBtn.textContent = qWrap.hidden ? "展开小题 (" + s.questions.length + ")" : "收起小题";
+          clearQsBtn.hidden = !s.questions.length;
+          qHead.hidden = qWrap.hidden || !s.questions.length;
 
           summaryHost.textContent = "";
           var secMap = {};
@@ -1548,7 +1701,7 @@
             secMap[lbl].count++;
             secMap[lbl].score = Math.round((secMap[lbl].score + (Number(q.full) || 0)) * 10) / 10;
           });
-          if (secOrder.length > 1 || (secOrder.length === 1 && s.questions.length > 0)) {
+          if (secOrder.length >= 1 && s.questions.length > 0) {
             secOrder.forEach(function (lbl) {
               summaryHost.append(label(lbl + " " + secMap[lbl].count + "题·" + secMap[lbl].score + "分"));
             });
@@ -1571,7 +1724,7 @@
               el("input", { value: q.no, placeholder: "题号", oninput: function () { q.no = this.value; } }),
               el("input", { value: q.title || "", placeholder: "题目描述", oninput: function () { q.title = this.value; } }),
               qtSel,
-              el("input", { value: q.tag || "", placeholder: "知识点标签", oninput: function () { q.tag = this.value; } }),
+              el("input", { value: q.tag || "", placeholder: "知识点", oninput: function () { q.tag = this.value; } }),
               el("input", { type: "number", step: "0.5", min: "0.5", value: q.full, placeholder: "满分", oninput: function () { q.full = Number(this.value) || 1; updateQSummary(); } }),
               el("input", { value: q.answer || "", placeholder: "标准答案/解析", oninput: function () { q.answer = this.value; } }),
               el("button", { type: "button", class: "btn btn-sm btn-danger", text: "删", onclick: function () { s.questions.splice(qIdx, 1); renderQs(); } }),
@@ -1593,6 +1746,7 @@
             countLabel,
             el("div", { class: "row" },
               toggleQsBtn,
+              clearQsBtn,
               el("button", { type: "button", class: "btn btn-sm", text: "+ 加 1 小题", onclick: function () {
                 s.expanded = true;
                 qWrap.hidden = false;
@@ -1611,6 +1765,7 @@
             ),
           ),
           summaryHost,
+          qHead,
           qWrap,
         ));
       });
@@ -1671,8 +1826,9 @@
     dlg.showModal();
   }
 
-  /* ---- 子页 B：成绩录入与拍图扫描 ---- */
+  /* ---------- 7B. 考务：成绩录入与拍图扫描 ---------- */
   function renderAdminScoring(host) {
+    host.textContent = "";
     if (!state.exams.length) {
       host.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, icon("pencil"), el("h3", { text: "请先在「考试管理」创建一场考试" }))));
       return;
@@ -1685,10 +1841,11 @@
       state.exams.map(function (e) { return el("option", { value: e.id, selected: e.id === state.selectedExamId, text: e.title + (e.status === "draft" ? "（草稿）" : "") }); }));
     var batchMode = false;
     var modeBtn = el("button", { type: "button", class: "btn btn-sm", text: "切换到：全员批量录分表" });
-    var workHost = el("div");
+    var workHost = el("div", { style: "display:grid;gap:1rem" });
     host.append(el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, exSel, modeBtn)), workHost);
 
     var usersCache = [];
+    var lastDetected = {};
     GS.api("GET", "/api/exam/admin/users").then(function (d) {
       usersCache = d.users;
       draw();
@@ -1706,7 +1863,7 @@
       var exam = state.exams.find(function (e) { return e.id === state.selectedExamId; });
       if (!exam) return;
       if (!usersCache.length) {
-        workHost.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, el("h3", { text: "暂无员工账号" }), el("p", { text: "请先在「用户与 4 位考号管理」新增成员。" }))));
+        workHost.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, el("h3", { text: "暂无员工账号" }), el("p", { text: "请先在「成员与考号」分配考号或新增成员。" }))));
         return;
       }
       if (batchMode) renderBatchGrid(exam);
@@ -1724,7 +1881,7 @@
 
       var area = el("div");
       workHost.append(
-        el("div", { class: "exam-card", style: "margin-bottom:1rem" },
+        el("div", { class: "exam-card" },
           el("div", { class: "exam-bar", style: "margin-bottom:0" },
             el("div", { class: "exam-bar-left" },
               el("span", { class: "small muted", text: "考号直查：" }),
@@ -1764,7 +1921,6 @@
           if (!sub) return;
           var mine = sub.mine || { score: "", absent: false, items: [], teacherComment: "" };
 
-          // 构造小题打分数组（优先已有作答，否则按科目模板初始化）
           var itemsEdited = !!(mine.items && mine.items.length);
           var itemDrafts = (mine.items && mine.items.length)
             ? mine.items.map(function (x) {
@@ -1838,6 +1994,24 @@
             }).catch(function (err) { done(); fail(err); });
           });
 
+          var delScoreBtn = sub.mine ? el("button", {
+            type: "button", class: "btn btn-sm btn-danger", text: "删除该生成绩",
+            onclick: function () {
+              GS.dialog({
+                title: "删除「" + (student.displayName || student.username) + "」本场成绩",
+                danger: true,
+                confirm: "确认删除",
+                text: "将删除该考生在本场考试的成绩与关联错题记录（保留已传答题卡原卷）。",
+              }).then(function (ok) {
+                if (!ok) return;
+                return GS.api("DELETE", "/api/exam/admin/exams/" + exam.id + "/scores/" + student.id).then(function () {
+                  GS.toast("已删除该生成绩记录");
+                  refreshSilentAndStay();
+                });
+              }).catch(fail);
+            },
+          }) : null;
+
           var leftCol = el("div", { class: "exam-card" },
             el("div", { class: "exam-card-head" },
               el("h3", { text: (student.displayName || student.username) + " · " + sub.name }),
@@ -1848,15 +2022,33 @@
               el("label", { class: "scanner-check", style: "padding-bottom:.45rem" }, absentChk, "标记缺考"),
             ),
             itemDrafts.length ? el("label", { class: "scanner-check", style: "margin-top:.6rem" }, autoSumChk, "按下方小题得分自动求和") : null,
-            itemDrafts.length ? itemsWrap : el("p", { class: "muted small", style: "margin-top:.6rem", text: "提示：若在「考试管理」中为该科目配置小题模板，录分时失分小题会自动沉淀至员工错题本。" }),
+            itemDrafts.length ? itemsWrap : el("p", { class: "muted small", style: "margin-top:.6rem", text: "提示：在「考试管理」中配置小题模板后，失分小题会自动沉淀至成员错题本。" }),
             el("div", { class: "field", style: "margin-top:.85rem" }, el("label", { text: "教师评语" }), noteTa),
-            el("div", { class: "form-actions" }, saveScoreBtn),
+            el("div", { class: "form-actions" }, saveScoreBtn, delScoreBtn),
           );
 
-          // 右侧：管理员专属扫描全能王拍图 + DeepSeek AI 自动批改答题卡
           var nextNo = sub.papers.length ? sub.papers[sub.papers.length - 1].pageNo + 1 : 1;
+          var key = student.id + ":" + sub.id;
+          var detectedBannerHost = el("div");
+          function renderDetectedBanner() {
+            detectedBannerHost.textContent = "";
+            var det = lastDetected[key];
+            if (!det || (!det.examNo && !det.name && !det.department)) return;
+            var mismatch = !!(det.examNo && student.examNo && det.examNo !== student.examNo);
+            detectedBannerHost.append(el("div", {
+              class: "flash " + (mismatch ? "flash-error" : "flash-info"),
+              style: "margin-top:.75rem",
+            }, icon(mismatch ? "alert" : "info"), el("div", {
+              text: (mismatch ? "⚠️ 卷面考号与当前选中成员不一致！" : "")
+                + "AI 识别卷面信息：考号 " + (det.examNo || "—")
+                + " · 姓名 " + (det.name || "—")
+                + (det.department ? " · 部门 " + det.department : ""),
+            })));
+          }
+          renderDetectedBanner();
+
           var scanBtn = el("button", {
-            type: "button", class: "btn btn-primary",
+            type: "button", class: "btn btn-sm btn-primary",
             onclick: function () {
               ExamScanner.open({
                 isAdmin: true,
@@ -1869,33 +2061,74 @@
                 initialComment: noteTa.value,
                 items: (itemsEdited || autoSumChk.checked) ? itemDrafts : undefined,
                 nextPageNo: nextNo,
-                onUploaded: function () { refreshSilentAndStay(); },
+                onUploaded: function (_pages, _synced, aiGrading, confirmedUser) {
+                  var targetId = confirmedUser && confirmedUser.id ? confirmedUser.id : student.id;
+                  if (confirmedUser && confirmedUser.id !== student.id) {
+                    userSel.value = String(confirmedUser.id);
+                  }
+                  if (aiGrading && aiGrading.detectedStudent) {
+                    lastDetected[targetId + ":" + sub.id] = aiGrading.detectedStudent;
+                  }
+                  refreshSilentAndStay();
+                },
               });
             },
-          }, icon("phone"), "📷 手机拍答题卡并提交/AI批改");
+          }, icon("phone"), "📷 拍答题卡 / 传原卷");
 
           var aiGradeBtn = sub.papers.length ? el("button", {
             type: "button",
-            class: "btn",
-            text: "🤖 AI 自动批改已传答题卡",
+            class: "btn btn-sm",
+            text: "🤖 AI 自动批改",
             onclick: function () {
               var done = GS.busy(aiGradeBtn, "AI 阅卷中…");
-              GS.api("POST", "/api/exam/admin/ai-grade", {
+              ExamScanner.runAiGradeWithConfirm({
                 examId: exam.id,
                 subjectId: sub.id,
                 userId: student.id,
                 applyAnnotations: true,
                 autoSave: true,
               }).then(function (r) {
-                GS.toast("AI 自动批改完成：" + r.grading.score + " / " + r.grading.fullScore + " 分，已更新红笔批注与错题本");
+                if (!r || !r.confirmed) {
+                  GS.toast("已取消本次成绩入库");
+                  return;
+                }
+                var targetId = r.targetUser && r.targetUser.id ? r.targetUser.id : student.id;
+                if (r.targetUser && r.targetUser.id !== student.id) {
+                  userSel.value = String(r.targetUser.id);
+                }
+                if (r.grading && r.grading.detectedStudent) {
+                  lastDetected[targetId + ":" + sub.id] = r.grading.detectedStudent;
+                }
+                var who = r.targetUser ? (r.targetUser.displayName || r.targetUser.username) : (student.displayName || student.username);
+                GS.toast("AI 批改已保存至「" + who + "」：" + r.grading.score + " / " + r.grading.fullScore + " 分");
                 refreshSilentAndStay();
-              }).catch(function (err) { done(); fail(err); });
+              }).catch(fail).finally(done);
+            },
+          }) : null;
+
+          var clearPapersBtn = sub.papers.length ? el("button", {
+            type: "button",
+            class: "btn btn-sm btn-danger",
+            text: "清空全部原卷",
+            onclick: function () {
+              GS.dialog({
+                title: "清空该生「" + sub.name + "」全部原卷",
+                danger: true,
+                confirm: "清空原卷",
+                text: "将永久删除该生此科目的全部 " + sub.papers.length + " 页扫描件。",
+              }).then(function (ok) {
+                if (!ok) return;
+                return GS.api("DELETE", "/api/exam/admin/papers?examId=" + exam.id + "&subjectId=" + sub.id + "&userId=" + student.id).then(function (r) {
+                  GS.toast("已清空 " + (r.deleted || sub.papers.length) + " 页扫描原卷");
+                  refreshSilentAndStay();
+                });
+              }).catch(fail);
             },
           }) : null;
 
           var papersList = el("div", { style: "display:grid;gap:.65rem;margin-top:.85rem" });
           if (!sub.papers.length) {
-            papersList.append(el("p", { class: "muted small", text: "暂无答题卡扫描件。支持手机拍照、相册选图，自动透视矫正并支持 DeepSeek AI 自动批改。" }));
+            papersList.append(el("p", { class: "muted small", text: "暂无答题卡扫描件。支持手机拍照或相册选图，自动透视矫正并支持 DeepSeek AI 自动批改手写答题卡。" }));
           } else {
             sub.papers.forEach(function (p) {
               papersList.append(el("div", { class: "box-row", style: "padding:.6rem .75rem;border:1px solid var(--ui-border);border-radius:var(--ui-r)" },
@@ -1906,9 +2139,17 @@
                 ),
                 el("button", { type: "button", class: "btn btn-sm", text: "红笔批改", onclick: function () { openAnnotationDialog(p, loadStudentSubject); } }),
                 el("button", { type: "button", class: "btn btn-sm btn-danger", text: "删", onclick: function () {
-                  GS.api("DELETE", "/api/exam/admin/papers/" + p.id).then(function () {
-                    GS.toast("已删除该页");
-                    loadStudentSubject();
+                  GS.dialog({
+                    title: "删除第 " + p.pageNo + " 页原卷",
+                    danger: true,
+                    confirm: "删除",
+                    text: "确认永久删除该页答题卡扫描件？",
+                  }).then(function (ok) {
+                    if (!ok) return;
+                    return GS.api("DELETE", "/api/exam/admin/papers/" + p.id).then(function () {
+                      GS.toast("已删除第 " + p.pageNo + " 页");
+                      refreshSilentAndStay();
+                    });
                   }).catch(fail);
                 } }),
               ));
@@ -1917,7 +2158,8 @@
 
           var rightCol = el("div", { class: "exam-card" },
             el("div", { class: "exam-card-head" }, el("h3", { text: "答题卡扫描与 AI 批改（" + sub.papers.length + " 页）" })),
-            el("div", { class: "row" }, scanBtn, aiGradeBtn),
+            el("div", { class: "row" }, scanBtn, aiGradeBtn, clearPapersBtn),
+            detectedBannerHost,
             papersList,
           );
 
@@ -1982,8 +2224,9 @@
     }
   }
 
-  /* ---- 子页 C：考情分析 ---- */
+  /* ---------- 7C. 考务：考情分析 ---------- */
   function renderAdminAnalytics(host) {
+    host.textContent = "";
     if (!state.exams.length) {
       host.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, icon("graph"), el("h3", { text: "暂无考试数据" }))));
       return;
@@ -1994,7 +2237,7 @@
     var exSel = el("select", { class: "exam-select" },
       state.exams.map(function (e) { return el("option", { value: e.id, selected: e.id === state.selectedExamId, text: e.title }); }));
     var csvBtn = el("button", { type: "button", class: "btn btn-sm", text: "导出 CSV 成绩单" });
-    var bodyHost = el("div");
+    var bodyHost = el("div", { style: "display:grid;gap:1rem" });
     host.append(el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, exSel), el("div", { class: "exam-bar-right" }, csvBtn)), bodyHost);
 
     var currentOv = null;
@@ -2010,7 +2253,6 @@
           el("div", { class: "exam-kpi" }, el("div", { class: "k" }, "及格率 / 优秀率"), el("div", { class: "v" }, s.passRate + "%", el("small", { text: " / 优 " + s.excellentRate + "%" }))),
         ));
 
-        // 分数段柱状图
         var maxBand = Math.max(1, Math.max.apply(null, s.scoreBands.map(function (b) { return b.count; })));
         var bandChart = el("div", { class: "chart" },
           s.scoreBands.map(function (b) {
@@ -2018,12 +2260,11 @@
             bar.style.height = (b.count / maxBand * 100) + "%";
             return el("div", { class: "chart-col" }, el("b", { text: String(b.count) }), el("div", { class: "chart-track" }, bar), el("span", { text: b.label }));
           }));
-        bodyHost.append(el("div", { class: "exam-card", style: "margin-bottom:1.25rem" },
+        bodyHost.append(el("div", { class: "exam-card" },
           el("div", { class: "exam-card-head" }, el("h3", { text: "总分得分率分布" })),
           bandChart,
         ));
 
-        // 排名榜单
         var tb = el("tbody");
         ov.ranking.forEach(function (r) {
           var subCells = ov.subjects.map(function (sub) {
@@ -2037,20 +2278,39 @@
             subCells,
             el("td", { style: "font-family:var(--pg-font-mono);font-weight:700", text: r.absent ? "缺考" : r.totalScore + " (" + r.rate + "%)" }),
             el("td", null, gradeBadge(r.grade)),
-            el("td", null, el("button", {
-              type: "button", class: "btn btn-sm", text: "看报告",
-              onclick: function () {
-                state.previewUserQuery = { userId: r.userId, examNo: r.examNo };
-                switchTab("report", { examId: ov.exam.id });
-              },
-            })),
+            el("td", null, el("div", { class: "row" },
+              el("button", {
+                type: "button", class: "btn btn-sm", text: "看报告",
+                onclick: function () {
+                  state.previewUserQuery = { userId: r.userId, examNo: r.examNo };
+                  switchTab("report", { examId: ov.exam.id });
+                },
+              }),
+              el("button", {
+                type: "button", class: "btn btn-sm btn-danger", text: "删成绩",
+                onclick: function () {
+                  GS.dialog({
+                    title: "删除「" + (r.displayName || r.username) + "」成绩",
+                    danger: true,
+                    confirm: "确认删除",
+                    text: "将删除该成员在「" + ov.exam.title + "」的全部成绩及错题记录。",
+                  }).then(function (ok) {
+                    if (!ok) return;
+                    return GS.api("DELETE", "/api/exam/admin/exams/" + ov.exam.id + "/scores/" + r.userId).then(function () {
+                      GS.toast("已删除该成员成绩");
+                      reloadExamsAndStay();
+                    });
+                  }).catch(fail);
+                },
+              }),
+            )),
           ));
         });
         bodyHost.append(el("div", { class: "box table-wrap" }, el("table", { class: "table" },
           el("thead", null, el("tr", null, [
             el("th", { text: "名次" }), el("th", { text: "考号" }), el("th", { text: "成员" }),
           ].concat(ov.subjects.map(function (sub) { return el("th", { text: sub.name }); }))
-            .concat([el("th", { text: "总分" }), el("th", { text: "等第" }), el("th", { text: "" })]))),
+            .concat([el("th", { text: "总分" }), el("th", { text: "等第" }), el("th", { text: "操作" })]))),
           tb,
         )));
       }).catch(fail);
@@ -2079,25 +2339,182 @@
     load();
   }
 
-  /* ---- 子页 D：用户与 4 位考号管理 ---- */
+  /* ---------- 7D. 考务：自动考号分配注册 & 成员管理 ---------- */
   function renderAdminUsers(host) {
-    var qInp = el("input", { type: "search", placeholder: "搜索 4 位考号、用户名、姓名、邮箱或部门", style: "max-width:22rem" });
-    var addBtn = el("button", { type: "button", class: "btn btn-primary", onclick: function () { openUserModal(null); } }, icon("plus"), "新增员工 / 分配考号");
+    host.textContent = "";
+
+    // 1. 自动考号分配注册系统卡片
+    var depts = OFFICIAL_DEPTS.slice();
+    var selfRegChk = el("input", { type: "checkbox", class: "switch", checked: true });
+    var regMode = "single"; // single | batch
+    var quickBody = el("div", { style: "display:grid;gap:.65rem" });
+    var credOutHost = el("div");
+
+    GS.api("GET", "/api/exam/admin/settings").then(function (cfg) {
+      if (cfg) {
+        selfRegChk.checked = cfg.selfRegisterEnabled !== false;
+        if (Array.isArray(cfg.departments) && cfg.departments.length) depts = cfg.departments;
+      }
+    }).catch(function () {});
+
+    selfRegChk.addEventListener("change", function () {
+      var nextVal = selfRegChk.checked;
+      GS.api("PUT", "/api/exam/admin/settings", { selfRegisterEnabled: nextVal }).then(function (r) {
+        selfRegChk.checked = r.selfRegisterEnabled !== false;
+        GS.toast(selfRegChk.checked ? "已开启未登录访客自助领取考号" : "已关闭自助考号注册");
+      }).catch(function (err) {
+        selfRegChk.checked = !nextVal;
+        fail(err);
+      });
+    });
+
+    var modeSingleBtn = el("button", { type: "button", class: "btn btn-sm is-on", text: "单人快速分配" });
+    var modeBatchBtn = el("button", { type: "button", class: "btn btn-sm", text: "批量名单分配" });
+
+    function showAllocatedCredentials(list) {
+      credOutHost.textContent = "";
+      if (!list || !list.length) return;
+      var copyAllText = list.map(function (c) {
+        return c.fullName + " (" + c.department + ") · 考号/ID/用户名/密码：" + c.examNo;
+      }).join("\n");
+
+      credOutHost.append(el("div", { class: "exam-cred-box" },
+        el("div", { class: "row", style: "justify-content:space-between" },
+          el("strong", { class: "small", text: "已成功分配 " + list.length + " 个 4 位考号账号（用户名 = ID = 密码 = 4 位考号）" }),
+          el("button", { type: "button", class: "btn btn-sm", text: "一键复制全部凭证", onclick: function () { copyText(copyAllText, "已复制 " + list.length + " 条考号凭证"); } }),
+        ),
+        el("div", { class: "table-wrap" }, el("table", { class: "table", style: "font-size:var(--pg-text-xs)" },
+          el("thead", null, el("tr", null, ["全名", "所属部门", "4位考号", "用户 ID", "用户名", "初始密码"].map(function (h) { return el("th", { text: h }); }))),
+          el("tbody", null, list.map(function (c) {
+            return el("tr", null,
+              el("td", { style: "font-weight:600", text: c.fullName }),
+              el("td", { text: c.department }),
+              el("td", null, el("span", { class: "exam-no-pill", text: c.examNo })),
+              el("td", { style: "font-family:var(--pg-font-mono)", text: String(c.id) }),
+              el("td", { style: "font-family:var(--pg-font-mono)", text: c.username }),
+              el("td", { style: "font-family:var(--pg-font-mono)", text: c.password }),
+            );
+          })),
+        )),
+      ));
+    }
+
+    function drawQuickRegBody() {
+      quickBody.textContent = "";
+      modeSingleBtn.classList.toggle("is-on", regMode === "single");
+      modeBatchBtn.classList.toggle("is-on", regMode === "batch");
+
+      if (regMode === "single") {
+        var fullNameInp = el("input", { type: "text", maxlength: "32", placeholder: "输入成员全名，如：马俊宇" });
+        var deptSel = el("select", null, depts.map(function (d) { return el("option", { value: d, text: d }); }));
+        var goBtn = el("button", { type: "button", class: "btn btn-primary", text: "自动分配 4 位考号并注册" });
+        goBtn.addEventListener("click", function () {
+          var fullName = fullNameInp.value.trim();
+          if (!fullName) {
+            GS.toast("请输入全名");
+            fullNameInp.focus();
+            return;
+          }
+          var done = GS.busy(goBtn, "分配注册中…");
+          GS.api("POST", "/api/exam/admin/users/auto-register", {
+            fullName: fullName,
+            department: deptSel.value,
+          }).then(function (r) {
+            fullNameInp.value = "";
+            showAllocatedCredentials(r.created);
+            GS.toast("已分配考号 " + (r.created[0] ? r.created[0].examNo : ""));
+            load();
+          }).catch(fail).finally(done);
+        });
+        quickBody.append(el("div", { class: "exam-quick-fields" },
+          el("div", { class: "field" }, el("label", { text: "全名" }), fullNameInp),
+          el("div", { class: "field" }, el("label", { text: "所属部门" }), deptSel),
+          goBtn,
+        ));
+      } else {
+        var defDeptSel = el("select", { style: "max-width:12rem" }, depts.map(function (d) { return el("option", { value: d, text: d }); }));
+        var ta = el("textarea", {
+          rows: "4",
+          placeholder: "每行一人：全名 或 全名 部门（支持空格/制表符/逗号分隔，最多 30 人）\n例如：\n马俊宇 管理部\n林浩 内核开发部\n张伟",
+        });
+        var batchBtn = el("button", { type: "button", class: "btn btn-primary", text: "批量分配考号并注册" });
+        batchBtn.addEventListener("click", function () {
+          var lines = ta.value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+          if (!lines.length) return GS.toast("请至少输入 1 名成员姓名");
+          if (lines.length > 30) return GS.toast("单次最多批量分配 30 人");
+          var entries = lines.map(function (line) {
+            var parts = line.split(/[\s,，\t]+/).filter(Boolean);
+            var last = parts.length > 1 ? parts[parts.length - 1] : "";
+            if (parts.length > 1 && depts.indexOf(last) !== -1) {
+              return { fullName: parts.slice(0, -1).join(" "), department: last };
+            }
+            return { fullName: line, department: defDeptSel.value };
+          });
+          var done = GS.busy(batchBtn, "批量分配中…");
+          GS.api("POST", "/api/exam/admin/users/auto-register", { entries: entries }).then(function (r) {
+            ta.value = "";
+            showAllocatedCredentials(r.created);
+            GS.toast("批量分配完成：共创建 " + r.created.length + " 个考号账号");
+            load();
+          }).catch(fail).finally(done);
+        });
+        quickBody.append(
+          el("div", { class: "row", style: "justify-content:space-between" },
+            el("div", { class: "row" }, el("span", { class: "small muted", text: "未指定部门时默认分配至：" }), defDeptSel),
+            el("div", { class: "row" }, batchBtn),
+          ),
+          ta,
+        );
+      }
+    }
+
+    modeSingleBtn.addEventListener("click", function () { regMode = "single"; drawQuickRegBody(); });
+    modeBatchBtn.addEventListener("click", function () { regMode = "batch"; drawQuickRegBody(); });
+    drawQuickRegBody();
+
+    var quickRegCard = el("div", { class: "exam-quick-reg" },
+      el("div", { class: "exam-bar", style: "margin-bottom:0" },
+        el("div", null,
+          el("h3", { style: "margin:0;font-size:.95rem;font-weight:600", text: "自动考号分配注册系统" }),
+          el("div", { class: "small muted", text: "输入全名和部门（" + OFFICIAL_DEPTS.join(" / ") + "），自动分配 4 位考号，用户名 = ID = 密码 = 该 4 位考号" }),
+        ),
+        el("label", { class: "scanner-check" }, selfRegChk, "允许未登录访客在 /exam 自助领取考号"),
+      ),
+      el("div", { class: "row" }, modeSingleBtn, modeBatchBtn),
+      quickBody,
+      credOutHost,
+    );
+
+    // 2. 成员列表检索与筛选
+    var qInp = el("input", { type: "search", placeholder: "搜索 4 位考号、用户名、姓名、邮箱或部门", style: "max-width:20rem" });
+    var deptFilter = el("select", { style: "max-width:11rem", "aria-label": "按部门筛选" },
+      el("option", { value: "", text: "全部部门" }),
+      OFFICIAL_DEPTS.map(function (d) { return el("option", { value: d, text: d }); }),
+    );
+    var addBtn = el("button", { type: "button", class: "btn btn-sm", onclick: function () { openUserModal(null); } }, icon("plus"), "手动新增账号");
     var wrap = el("div", { class: "box table-wrap" });
-    host.append(el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, qInp), el("div", { class: "exam-bar-right" }, addBtn)), wrap);
+
+    host.append(
+      quickRegCard,
+      el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, qInp, deptFilter), el("div", { class: "exam-bar-right" }, addBtn)),
+      wrap,
+    );
 
     var timer;
     qInp.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(load, 200); });
+    deptFilter.addEventListener("change", load);
 
     function load() {
-      GS.api("GET", "/api/exam/admin/users?q=" + encodeURIComponent(qInp.value.trim())).then(function (d) {
+      var qs = ["q=" + encodeURIComponent(qInp.value.trim())];
+      if (deptFilter.value) qs.push("department=" + encodeURIComponent(deptFilter.value));
+      GS.api("GET", "/api/exam/admin/users?" + qs.join("&")).then(function (d) {
         var tb = el("tbody");
         d.users.forEach(function (u) {
           tb.append(el("tr", null,
             el("td", null, u.examNo ? el("span", { class: "exam-no-pill", text: u.examNo }) : el("span", { class: "muted small", text: "未分配" })),
             el("td", null, el("div", { class: "user-cell" }, GS.avatar(u.username),
               el("div", null, el("b", { text: u.displayName || u.username }),
-                el("div", { class: "small muted", text: "@" + u.username + " · " + u.email })))),
+                el("div", { class: "small muted", text: "ID " + u.id + " · @" + u.username + " · " + u.email })))),
             el("td", { text: u.department || "—" }),
             el("td", null, el("div", { class: "row" },
               u.role === "admin" ? label("管理员", "accent") : label("员工"),
@@ -2137,7 +2554,9 @@
       var genBtn = el("button", { type: "button", class: "btn btn-sm", text: "随机考号", onclick: function () {
         GS.api("GET", "/api/exam/admin/users/next-exam-no").then(function (r) { examNoI.value = r.examNo; }).catch(fail);
       } });
-      var deptI = el("input", { value: u ? u.department : "", placeholder: "例如：内核研发组 / 产品组" });
+      var deptList = el("datalist", { id: "exam-dept-list" },
+        OFFICIAL_DEPTS.map(function (d) { return el("option", { value: d }); }));
+      var deptI = el("input", { value: u ? u.department : "", list: "exam-dept-list", placeholder: "选择或输入部门（如：管理部）" });
       var roleSel = el("select", null,
         el("option", { value: "user", selected: !u || u.role === "user", text: "普通员工" }),
         el("option", { value: "admin", selected: u && u.role === "admin", text: "管理员（可录分/扫卷/管理用户）" }),
@@ -2156,14 +2575,15 @@
       var cancelBtn = el("button", { type: "button", class: "btn", text: "取消" });
 
       dlg.append(
-        el("header", null, icon("people"), el("span", { class: "grow", text: isNew ? "新增员工账号" : "编辑成员：" + (u.displayName || u.username) })),
+        el("header", null, icon("people"), el("span", { class: "grow", text: isNew ? "手动新增员工账号" : "编辑成员：" + (u.displayName || u.username) })),
         el("div", { class: "dialog-body" },
+          deptList,
           el("div", { class: "field" }, el("label", { text: "4 位考号" }), el("div", { class: "row" }, el("div", { class: "grow" }, examNoI), genBtn)),
           el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "用户名" }), usernameI),
-          el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "姓名 / 昵称" }), nameI),
+          el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "全名 / 昵称" }), nameI),
           el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: "邮箱" }), emailI),
           el("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.75rem" },
-            el("div", { class: "field" }, el("label", { text: "部门 / 组别" }), deptI),
+            el("div", { class: "field" }, el("label", { text: "所属部门" }), deptI),
             el("div", { class: "field" }, el("label", { text: "账号角色" }), roleSel),
           ),
           el("div", { class: "field", style: "margin-top:.75rem" }, el("label", { text: isNew ? "初始密码" : "重置密码（可选）" }),
@@ -2217,25 +2637,23 @@
     if (state.activeTab === "report") renderReportTab();
     else if (state.activeTab === "papers") renderPapersTab();
     else if (state.activeTab === "mistakes") renderMistakesTab();
-    else if (state.activeTab === "admin") renderAdminTab();
+    else if (state.activeTab === "admin-exams") renderAdminExams(root);
+    else if (state.activeTab === "admin-scoring") renderAdminScoring(root);
+    else if (state.activeTab === "admin-analytics") renderAdminAnalytics(root);
+    else if (state.activeTab === "admin-users") renderAdminUsers(root);
   }
 
   GS.me().then(function (u) {
     state.me = u;
     if (!u) {
       renderIdCard();
-      tabsNav.hidden = true;
-      root.append(el("div", { class: "box" }, el("div", { class: "blankslate" },
-        icon("lock"),
-        el("h3", { text: "请先登录 GoutouStdio 账号" }),
-        el("p", { text: "内部考试系统需要验证成员身份。管理员分配 4 位考号后，也可直接使用考号 + 密码登录。" }),
-        el("a", { class: "btn btn-primary", href: "/login?next=/exam", text: "前往登录" }),
-      )));
+      renderGuestAuth();
       return;
     }
 
-    tabsNav.hidden = false;
-    adminTabBtn.hidden = u.role !== "admin";
+    shell.classList.remove("is-guest");
+    sidebar.hidden = false;
+    adminNav.hidden = u.role !== "admin";
 
     Promise.all([GS.api("GET", "/api/exam/me"), GS.api("GET", "/api/exam/list")]).then(function (res) {
       state.examMe = res[0];

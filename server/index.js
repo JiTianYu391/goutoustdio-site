@@ -46,7 +46,7 @@ app.use("/api", (req, res, next) => {
   if ((req.path === "/exam/admin/papers" || req.path === "/exam/admin/parse-doc" || req.path === "/exam/admin/parse-photos") && req.method === "POST") {
     return jsonUpload(req, res, next);
   }
-  if (/^\/exam\/admin\/(?:exams(?:\/\d+)?|scores(?:\/batch)?)$/.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {
+  if (/^\/exam\/admin\//.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {
     return jsonMedium(req, res, next);
   }
   return jsonSmall(req, res, next);

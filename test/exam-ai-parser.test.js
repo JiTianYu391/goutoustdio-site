@@ -28,6 +28,11 @@ const VALID_JPEG_DATA_URL = "data:image/jpeg;base64," + Buffer.from([
 ]).toString("base64");
 
 let mockDsMode = "parse"; // "parse" | "grade" | "unauthorized"
+let mockGradeDetected = {
+  examNo: "0413",
+  name: "张同学",
+  department: "管理部",
+};
 
 const cookiesFrom = (r) => r.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
 
@@ -64,6 +69,7 @@ before(async () => {
             message: {
               content: JSON.stringify({
                 totalScore: 22,
+                detectedStudent: mockGradeDetected,
                 teacherComment: "AI 初评：听力题全对，主观题第(2)问缺关键说明扣 8 分。",
                 items: [
                   {
@@ -265,9 +271,13 @@ test("拍照多图 AI 识卷 -> 保存考试 -> 考生端查看扫描答题卡 +
     autoSave: true,
   }, adminCookie);
   assert.equal(gradeRes.status, 200);
+  assert.equal(gradeRes.json.needsConfirmation, false);
+  assert.equal(gradeRes.json.grading.autoSaved, true);
   assert.equal(gradeRes.json.grading.score, 22);
   assert.equal(gradeRes.json.grading.wrongCount, 1);
   assert.equal(gradeRes.json.grading.pagesUpdated, 1);
+  assert.equal(gradeRes.json.grading.detectedStudent.examNo, "0413");
+  assert.equal(gradeRes.json.grading.detectedStudent.department, "管理部");
 
   // 5. 考生端读取完整诊断报告与扫描答题卡：能看到红笔标注、小题得分、识别作答、AI批改评语及错题本
   const repRes = await api("GET", `/api/exam/exams/${examId}/report`, undefined, stuCookie);
@@ -285,6 +295,143 @@ test("拍照多图 AI 识卷 -> 保存考试 -> 考生端查看扫描答题卡 +
   assert.equal(misRes.status, 200);
   assert.equal(misRes.json.mistakes.length, 1);
   assert.equal(misRes.json.mistakes[0].questionNo, "2");
+});
+
+test("AI 扫错考生姓名/选错人（如马俊宇扫成梁俊宇）：数据库模糊匹配候选 + 询问确认后归档并迁移原卷", async () => {
+  const maRes = await api("POST", "/api/exam/admin/users", {
+    username: "majunyu",
+    displayName: "马俊宇",
+    email: "majunyu@goutoustdio.top",
+    password: "0426",
+    examNo: "0426",
+    department: "管理部",
+  }, adminCookie);
+  assert.equal(maRes.status, 201);
+  const stuMa = maRes.json.user;
+
+  const bobRes = await api("POST", "/api/exam/admin/users", {
+    username: "bobby",
+    displayName: "鲍勃",
+    email: "bobby@goutoustdio.top",
+    password: "0007",
+    examNo: "0007",
+    department: "软件部",
+  }, adminCookie);
+  assert.equal(bobRes.status, 201);
+  const stuBob = bobRes.json.user;
+
+  const exRes = await api("POST", "/api/exam/admin/exams", {
+    title: "模糊匹配与确认入库专项测试",
+    status: "published",
+    subjects: [{
+      name: "内核技术",
+      fullScore: 30,
+      questions: [
+        { no: "1", title: "单选题", tag: "基础", full: 10, answer: "B" },
+        { no: "2", title: "主观题", tag: "架构", full: 20, answer: "意思对即可" },
+      ],
+    }],
+  }, adminCookie);
+  assert.equal(exRes.status, 201);
+  const exId = exRes.json.exam.id;
+  const subId = exRes.json.exam.subjects[0].id;
+
+  // 管理员误把答卷上传到了鲍勃 (0007) 名下
+  const upRes = await api("POST", "/api/exam/admin/papers", {
+    examId: exId,
+    subjectId: subId,
+    userId: stuBob.id,
+    pageNo: 1,
+    imageData: VALID_JPEG_DATA_URL,
+  }, adminCookie);
+  assert.equal(upRes.status, 201);
+
+  // 情形 A：纯姓名误读（考号未识别，马俊宇被识别为梁俊宇），仅凭姓名 + 部门应最匹配马俊宇
+  mockDsMode = "grade";
+  mockGradeDetected = { examNo: "", name: "梁俊宇", department: "管理部" };
+  const nameOnlyRes = await api("POST", "/api/exam/admin/ai-grade", {
+    examId: exId,
+    subjectId: subId,
+    userId: stuBob.id,
+    applyAnnotations: true,
+    autoSave: true,
+  }, adminCookie);
+  assert.equal(nameOnlyRes.status, 200);
+  assert.equal(nameOnlyRes.json.needsConfirmation, true);
+  assert.equal(nameOnlyRes.json.grading.autoSaved, false);
+  assert.equal(nameOnlyRes.json.bestMatch.id, stuMa.id);
+  assert.equal(nameOnlyRes.json.bestMatch.displayName, "马俊宇");
+  assert.ok(nameOnlyRes.json.bestMatch.matchPct >= 70);
+
+  // 情形 B：考号 0426 + 姓名误识别为梁俊宇，即使选的当前对象本身就是马俊宇也应弹窗询问确认（因姓名为梁俊宇 != 马俊宇）
+  const upMaTemp = await api("POST", "/api/exam/admin/papers", {
+    examId: exId,
+    subjectId: subId,
+    userId: stuMa.id,
+    pageNo: 1,
+    imageData: VALID_JPEG_DATA_URL,
+  }, adminCookie);
+  assert.equal(upMaTemp.status, 201);
+  mockGradeDetected = { examNo: "0426", name: "梁俊宇", department: "管理部" };
+  const selfMismatchRes = await api("POST", "/api/exam/admin/ai-grade", {
+    examId: exId,
+    subjectId: subId,
+    userId: stuMa.id,
+    pageIds: [upMaTemp.json.page.id],
+    applyAnnotations: true,
+    autoSave: true,
+  }, adminCookie);
+  assert.equal(selfMismatchRes.status, 200);
+  assert.equal(selfMismatchRes.json.needsConfirmation, true);
+  assert.equal(selfMismatchRes.json.bestMatch.id, stuMa.id);
+  assert.ok(selfMismatchRes.json.bestMatch.matchPct >= 85);
+  await api("DELETE", `/api/exam/admin/papers/${upMaTemp.json.page.id}`, undefined, adminCookie);
+
+  // 情形 C：选中鲍勃触发扫卷 -> 返回 needsConfirmation=true，鲍勃名下尚未落库任何成绩
+  const gradeRes = await api("POST", "/api/exam/admin/ai-grade", {
+    examId: exId,
+    subjectId: subId,
+    userId: stuBob.id,
+    pageIds: [upRes.json.page.id],
+    applyAnnotations: true,
+    autoSave: true,
+  }, adminCookie);
+  assert.equal(gradeRes.status, 200);
+  assert.equal(gradeRes.json.needsConfirmation, true);
+  assert.equal(gradeRes.json.grading.autoSaved, false);
+  assert.equal(gradeRes.json.bestMatch.id, stuMa.id);
+  assert.ok(gradeRes.json.candidates.some((c) => c.id === stuBob.id), "候选列表应保留当前选中考生供选择");
+
+  const bobBefore = await api("GET", `/api/exam/exams/${exId}/report?userId=${stuBob.id}`, undefined, adminCookie);
+  assert.equal(bobBefore.json.mine.hasRecord, false);
+
+  // 管理员确认归入马俊宇：迁移扫描原卷 + 保存红笔标注 + 录入成绩与错题本
+  const confirmRes = await api("POST", "/api/exam/admin/ai-grade/confirm", {
+    examId: exId,
+    subjectId: subId,
+    targetUserId: stuMa.id,
+    sourceUserId: stuBob.id,
+    pageIds: gradeRes.json.pageIds,
+    applyAnnotations: true,
+    grading: gradeRes.json.grading,
+  }, adminCookie);
+  assert.equal(confirmRes.status, 200);
+  assert.equal(confirmRes.json.needsConfirmation, false);
+  assert.equal(confirmRes.json.reassignedPapers, 1);
+  assert.equal(confirmRes.json.targetUser.id, stuMa.id);
+
+  const maAfter = await api("GET", `/api/exam/exams/${exId}/report?userId=${stuMa.id}`, undefined, adminCookie);
+  assert.equal(maAfter.status, 200);
+  assert.equal(maAfter.json.mine.hasRecord, true);
+  assert.equal(maAfter.json.mine.totalScore, 22);
+  assert.equal(maAfter.json.subjects[0].papers.length, 1);
+  assert.ok(maAfter.json.subjects[0].papers[0].annotations.length >= 3);
+
+  const bobAfter = await api("GET", `/api/exam/exams/${exId}/report?userId=${stuBob.id}`, undefined, adminCookie);
+  assert.equal(bobAfter.json.mine.hasRecord, false);
+  assert.equal(bobAfter.json.subjects[0].papers.length, 0);
+
+  mockGradeDetected = { examNo: "0413", name: "张同学", department: "管理部" };
 });
 
 test("AI 异常与伪造图片校验：坏图 400、上游 401 返回 400 明确提示", async () => {

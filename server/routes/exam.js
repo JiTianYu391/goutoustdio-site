@@ -6,7 +6,7 @@ import path from "node:path";
 import { db, EXAM_UPLOAD_DIR } from "../db.js";
 import * as A from "../auth.js";
 import {
-  str, USER_RE, MAIL_RE, EXAM_NO_RE, need, needAdmin, getUser, syncAdmin,
+  str, USER_RE, MAIL_RE, EXAM_NO_RE, authLimit, need, needAdmin, getUser, pubUser, syncAdmin,
 } from "../util.js";
 import { parseExamDocument } from "../exam-parser.js";
 import { getDeepSeekConfig, saveDeepSeekConfig, parseExamPhotosWithAI, gradeExamPapersWithAI } from "../exam-ai-parser.js";
@@ -17,6 +17,90 @@ const ALLOWED_STATUS = new Set(["draft", "published"]);
 const ALLOWED_FILTERS = new Set(["magic", "bw", "gray", "enhance", "original"]);
 const ALLOWED_ANN_TYPES = new Set(["check", "cross", "circle", "line", "text"]);
 const ALLOWED_QTYPES = new Set(["choice", "multi_choice", "judge", "blank", "listening", "essay", "other"]);
+export const EXAM_DEPARTMENTS = ["管理部", "内核开发部", "自行车动作部", "软件部", "游戏部"];
+const EXAM_DEPT_SET = new Set(EXAM_DEPARTMENTS);
+const SETTING_SELF_REG = "exam_self_register_enabled";
+
+function isSelfRegisterEnabled() {
+  const row = db.prepare("SELECT value FROM settings WHERE key=?").get(SETTING_SELF_REG);
+  return row ? row.value !== "0" : true;
+}
+
+function pickAvailableExamNo() {
+  const usedIds = new Set(db.prepare("SELECT id FROM users").all().map((x) => x.id));
+  const usedNos = new Set(
+    db.prepare("SELECT exam_no FROM users WHERE exam_no IS NOT NULL AND exam_no <> ''").all().map((x) => x.exam_no),
+  );
+  const usedNames = new Set(db.prepare("SELECT username FROM users").all().map((x) => String(x.username || "").toLowerCase()));
+  const usedEmails = new Set(db.prepare("SELECT email FROM users").all().map((x) => String(x.email || "").toLowerCase()));
+
+  const isFree = (noStr) => !usedIds.has(Number(noStr))
+    && !usedNos.has(noStr)
+    && !usedNames.has(noStr)
+    && !usedEmails.has(`${noStr}@exam.goutoustdio.top`);
+
+  for (let i = 0; i < 120; i++) {
+    const noStr = String(crypto.randomInt(1, 10000)).padStart(4, "0");
+    if (isFree(noStr)) return noStr;
+  }
+  for (let i = 1; i <= 9999; i++) {
+    const noStr = String(i).padStart(4, "0");
+    if (isFree(noStr)) return noStr;
+  }
+  return null;
+}
+
+async function allocateExamNoAndRegister({ fullName, department, emailVerified }) {
+  const cleanName = str(fullName).replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  const cleanDept = str(department).trim();
+  if (!cleanName || cleanName.length > 32) {
+    const err = new Error("姓名长度需为 1–32 字");
+    err.status = 400;
+    throw err;
+  }
+  if (!EXAM_DEPT_SET.has(cleanDept)) {
+    const err = new Error(`部门必须选择：${EXAM_DEPARTMENTS.join(" / ")}`);
+    err.status = 400;
+    throw err;
+  }
+
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const examNo = pickAvailableExamNo();
+    if (!examNo) {
+      const err = new Error("4 位考号已全部分配完毕");
+      err.status = 409;
+      throw err;
+    }
+    const uid = Number(examNo);
+    const email = `${examNo}@exam.goutoustdio.top`;
+    const hash = await A.hashPassword(examNo);
+    try {
+      db.prepare(`
+        INSERT INTO users (id, username, email, password_hash, role, email_verified, created_at, display_name, exam_no, department, admin_manual)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).run(uid, examNo, email, hash, "user", emailVerified ? 1 : 0, Date.now(), cleanName, examNo, cleanDept, 0);
+
+      const user = getUser(uid);
+      return {
+        user,
+        credentials: {
+          id: uid,
+          examNo,
+          username: examNo,
+          password: examNo,
+          fullName: cleanName,
+          department: cleanDept,
+        },
+      };
+    } catch (e) {
+      if (String(e?.message || "").includes("UNIQUE")) continue;
+      throw e;
+    }
+  }
+  const err = new Error("考号分配冲突，请重试");
+  err.status = 409;
+  throw err;
+}
 
 const num = (v, def = 0) => {
   const n = Number(v);
@@ -195,6 +279,211 @@ function resolveUser(userId, examNo) {
     return db.prepare("SELECT * FROM users WHERE exam_no=?").get(no) || null;
   }
   return null;
+}
+
+function normPersonName(v) {
+  return str(v)
+    .trim()
+    .replace(/^(?:姓名|考生|名字)[:：\s]*/u, "")
+    .replace(/[\s·•.\-_()（）「」『』\[\]]+/g, "")
+    .toLowerCase();
+}
+
+function normDeptName(v) {
+  return str(v)
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/(?:部门?|小组|组)$/u, "")
+    .toLowerCase();
+}
+
+function normExamNoOcr(v) {
+  const mapped = str(v)
+    .trim()
+    .replace(/[Oo]/g, "0")
+    .replace(/[Il|]/g, "1")
+    .replace(/[Zz]/g, "2")
+    .replace(/[Ss]/g, "5")
+    .replace(/[B]/g, "8");
+  const m4 = /\d{4}/.exec(mapped);
+  if (m4) return m4[0];
+  const m3 = /^\d{3}$/.exec(mapped.replace(/\D/g, ""));
+  if (m3) return `0${m3[0]}`;
+  return "";
+}
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => i);
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i];
+      dp[i] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[i], dp[i - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
+
+function calcNameSimilarity(detRaw, candRaw) {
+  const a = Array.from(normPersonName(detRaw));
+  const b = Array.from(normPersonName(candRaw));
+  if (!a.length || !b.length) return 0;
+  if (a.join("") === b.join("")) return 1;
+  const maxLen = Math.max(a.length, b.length);
+  const editSim = 1 - levenshtein(a, b) / maxLen;
+  const common = a.filter((ch) => b.includes(ch)).length / maxLen;
+  let bonus = 0;
+  if (a.length >= 2 && b.length >= 2 && a.slice(1).join("") === b.slice(1).join("")) {
+    bonus += 0.2;
+  } else if (a.length >= 3 && b.length >= 3 && a[0] === b[0] && a[a.length - 1] === b[b.length - 1]) {
+    bonus += 0.15;
+  } else if (a[0] === b[0] || a[a.length - 1] === b[b.length - 1]) {
+    bonus += 0.1;
+  }
+  return Math.min(0.95, Math.max(editSim, common * 0.85) + bonus);
+}
+
+function hamming4(a, b) {
+  if (!EXAM_NO_RE.test(a) || !EXAM_NO_RE.test(b)) return 99;
+  let diff = 0;
+  for (let i = 0; i < 4; i++) {
+    if (a[i] !== b[i]) diff++;
+  }
+  return diff;
+}
+
+function matchStudentCandidates(detected, targetUser) {
+  const detNo = normExamNoOcr(detected?.examNo);
+  const detNameRaw = str(detected?.name).trim();
+  const detName = normPersonName(detNameRaw);
+  const detDeptRaw = str(detected?.department).trim();
+  const detDept = normDeptName(detDeptRaw);
+
+  const targetDisp = targetUser ? (targetUser.display_name || targetUser.username || "") : "";
+  const targetNameNorm = normPersonName(targetDisp);
+  const targetUserNorm = targetUser ? normPersonName(targetUser.username) : "";
+  const targetNo = targetUser?.exam_no || "";
+  const targetDeptNorm = targetUser ? normDeptName(targetUser.department) : "";
+
+  const nameMatchesTarget = !detName || (detName === targetNameNorm) || (targetUserNorm && detName === targetUserNorm);
+  const noMatchesTarget = !detNo || detNo === targetNo;
+  const deptMatchesTarget = !detDept || !targetDeptNorm || detDept === targetDeptNorm;
+  const isExactTargetMatch = Boolean(targetUser && noMatchesTarget && nameMatchesTarget && deptMatchesTarget);
+
+  const discrepancyReasons = [];
+  if (!isExactTargetMatch) {
+    if (detNo && detNo !== targetNo) {
+      discrepancyReasons.push(`AI 识别卷面考号「${detNo}」与当前考生考号「${targetNo || "无"}」不一致`);
+    }
+    if (detName && !nameMatchesTarget) {
+      discrepancyReasons.push(`AI 识别卷面姓名「${detNameRaw}」与当前考生「${targetDisp || "无"}」不一致`);
+    }
+    if (detDept && targetDeptNorm && detDept !== targetDeptNorm) {
+      discrepancyReasons.push(`AI 识别部门「${detDeptRaw}」与「${targetUser?.department || "无"}」不一致`);
+    }
+  }
+
+  const allUsers = db.prepare("SELECT * FROM users WHERE banned=0 ORDER BY exam_no ASC, id ASC").all();
+  const availableMax = (detNo ? 55 : 0) + (detName ? 45 : 0) + (detDept ? 10 : 0);
+
+  function scoreUser(u) {
+    let score = 0;
+    const reasons = [];
+    const uNo = u.exam_no || "";
+    const uDisp = u.display_name || u.username || "";
+    const uDeptNorm = normDeptName(u.department);
+
+    let noExact = true;
+    if (detNo) {
+      noExact = false;
+      if (uNo && uNo === detNo) {
+        score += 55;
+        noExact = true;
+        reasons.push(`考号一致 (${uNo})`);
+      } else if (uNo) {
+        const hd = hamming4(detNo, uNo);
+        if (hd === 1) {
+          score += 30;
+          reasons.push(`考号相近 (${detNo} ≈ ${uNo})`);
+        } else if (hd === 2) {
+          score += 12;
+          reasons.push(`考号部分相近 (${uNo})`);
+        }
+      }
+    }
+
+    let nameExact = true;
+    if (detName) {
+      nameExact = false;
+      const sim = Math.max(
+        calcNameSimilarity(detNameRaw, u.display_name || ""),
+        calcNameSimilarity(detNameRaw, u.username || ""),
+      );
+      if (sim >= 0.999) {
+        score += 45;
+        nameExact = true;
+        reasons.push(`姓名完全一致 (${uDisp})`);
+      } else if (sim >= 0.6) {
+        score += Math.round(sim * 40);
+        reasons.push(`姓名高度相似 (${detNameRaw} ≈ ${uDisp})`);
+      } else if (sim >= 0.35) {
+        score += Math.round(sim * 40);
+        reasons.push(`姓名部分相似 (${uDisp})`);
+      }
+    }
+
+    let deptExact = true;
+    if (detDept && uDeptNorm) {
+      deptExact = uDeptNorm === detDept;
+      if (deptExact) {
+        score += 10;
+        reasons.push(`部门一致 (${u.department})`);
+      }
+    }
+
+    const exactAll = noExact && nameExact && deptExact && Boolean(detNo || detName);
+    const matchPct = exactAll
+      ? 100
+      : (availableMax > 0 ? Math.min(99, Math.round((score / availableMax) * 100)) : 0);
+
+    return {
+      ...examUserDto(u),
+      score,
+      matchPct,
+      reasons,
+    };
+  }
+
+  const scored = allUsers.map(scoreUser).sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (targetUser && a.id === targetUser.id) return -1;
+    if (targetUser && b.id === targetUser.id) return 1;
+    return a.id - b.id;
+  });
+
+  const top = scored.filter((c) => c.matchPct >= 20).slice(0, 5);
+  if (targetUser && !top.some((c) => c.id === targetUser.id)) {
+    const targetScored = scored.find((c) => c.id === targetUser.id);
+    if (targetScored) {
+      top.push({
+        ...targetScored,
+        reasons: targetScored.reasons.length ? targetScored.reasons : ["当前页面选中的考生"],
+      });
+    }
+  }
+
+  return {
+    isExactTargetMatch,
+    discrepancyReasons,
+    bestMatch: top[0] || null,
+    candidates: top,
+  };
 }
 
 function syncMistakes(userId, examId, subjectId, items, absent) {
@@ -443,6 +732,34 @@ function computeExamAggregates(examId) {
     subjectStats,
   };
 }
+
+// ====================================================================
+// 公开配置与自动考号分配自助注册（免登录）
+// ====================================================================
+r.get("/public/config", (_req, res) => {
+  res.json({
+    departments: EXAM_DEPARTMENTS,
+    selfRegisterEnabled: isSelfRegisterEnabled(),
+  });
+});
+
+r.post("/public/auto-register", authLimit, async (req, res) => {
+  if (!isSelfRegisterEnabled()) {
+    return res.status(403).json({ error: "管理员已关闭自助考号注册，请联系管理员统一分配考号" });
+  }
+  try {
+    const { user, credentials } = await allocateExamNoAndRegister({
+      fullName: req.body?.fullName,
+      department: req.body?.department,
+      emailVerified: false,
+    });
+    A.setCookie(res, A.createSession(user.id, req));
+    res.status(201).json({ user: pubUser(user), credentials });
+  } catch (e) {
+    const status = Number(e?.status) >= 400 && Number(e?.status) < 500 ? Number(e.status) : 400;
+    res.status(status).json({ error: e?.message || "自动考号注册失败" });
+  }
+});
 
 // ====================================================================
 // 员工端路由（需登录）
@@ -837,10 +1154,75 @@ r.patch("/mistakes/:id", (req, res) => {
   res.json({ ok: true, reflection, mastered: !!mastered, updatedAt: now });
 });
 
+r.delete("/mistakes/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare("SELECT * FROM exam_mistakes WHERE id=?").get(id);
+  if (!row) return res.status(404).json({ error: "错题记录不存在" });
+  if (row.user_id !== req.user.id && req.user.role !== "admin") {
+    return res.status(403).json({ error: "不能删除他人错题" });
+  }
+  db.prepare("DELETE FROM exam_mistakes WHERE id=?").run(id);
+  res.json({ ok: true });
+});
+
 // ====================================================================
 // 管理员路由（用户与 4 位考号 / 考试 / 成绩 / 扫描件与红笔批改）
 // ====================================================================
 r.use("/admin", needAdmin);
+
+r.get("/admin/settings", (_req, res) => {
+  res.json({
+    departments: EXAM_DEPARTMENTS,
+    selfRegisterEnabled: isSelfRegisterEnabled(),
+  });
+});
+
+r.put("/admin/settings", (req, res) => {
+  if (req.body?.selfRegisterEnabled !== undefined) {
+    const val = req.body.selfRegisterEnabled ? "1" : "0";
+    db.prepare(`
+      INSERT INTO settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value
+    `).run(SETTING_SELF_REG, val);
+  }
+  res.json({
+    departments: EXAM_DEPARTMENTS,
+    selfRegisterEnabled: isSelfRegisterEnabled(),
+  });
+});
+
+r.post("/admin/users/auto-register", async (req, res) => {
+  const rawEntries = Array.isArray(req.body?.entries)
+    ? req.body.entries
+    : [{ fullName: req.body?.fullName, department: req.body?.department }];
+
+  if (!rawEntries.length || rawEntries.length > 30) {
+    return res.status(400).json({ error: "单次自动分配注册人数须在 1–30 人之间" });
+  }
+
+  const created = [];
+  for (let i = 0; i < rawEntries.length; i++) {
+    const ent = rawEntries[i];
+    try {
+      const { user, credentials } = await allocateExamNoAndRegister({
+        fullName: ent?.fullName,
+        department: ent?.department,
+        emailVerified: true,
+      });
+      created.push({ user: examUserDto(user), credentials });
+    } catch (e) {
+      const status = Number(e?.status) >= 400 && Number(e?.status) < 500 ? Number(e.status) : 400;
+      return res.status(status).json({
+        error: rawEntries.length > 1 ? `第 ${i + 1} 条失败：${e?.message || "注册失败"}` : (e?.message || "注册失败"),
+        created,
+      });
+    }
+  }
+  res.status(201).json({
+    created: created.map((c) => c.credentials),
+    users: created.map((c) => c.user),
+  });
+});
 
 r.get("/admin/users", (req, res) => {
   const q = `%${str(req.query.q).trim()}%`;
@@ -1062,7 +1444,7 @@ r.post("/admin/parse-photos", async (req, res) => {
   }
 });
 
-// ---- AI 自动批改考生答题卡扫描件（读取已上传原卷 -> 识别作答 -> 判分与生成红笔批注 -> 落库成绩与错题本） ----
+// ---- AI 自动批改考生答题卡扫描件（读取已上传原卷 -> 识别作答 -> 核对身份/数据库模糊匹配 -> 判分与生成红笔批注 -> 落库成绩与错题本） ----
 r.post("/admin/ai-grade", async (req, res) => {
   const examId = Number(req.body?.examId);
   const subjectId = Number(req.body?.subjectId);
@@ -1074,9 +1456,17 @@ r.post("/admin/ai-grade", async (req, res) => {
   const target = resolveUser(req.body?.userId, req.body?.examNo);
   if (!target) return res.status(404).json({ error: "未找到目标考生，请核对 4 位考号" });
 
-  const paperRows = db.prepare(
+  const reqPageIds = Array.isArray(req.body?.pageIds)
+    ? req.body.pageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    : [];
+  let paperRows = db.prepare(
     "SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=? ORDER BY page_no ASC, id ASC",
   ).all(examId, subjectId, target.id);
+  if (reqPageIds.length) {
+    const idSet = new Set(reqPageIds);
+    const subset = paperRows.filter((row) => idSet.has(row.id));
+    if (subset.length) paperRows = subset;
+  }
   if (!paperRows.length) {
     return res.status(400).json({ error: "该考生在本科目下尚未上传答题卡/试卷扫描件，请先拍照或上传原卷" });
   }
@@ -1114,6 +1504,44 @@ r.post("/admin/ai-grade", async (req, res) => {
     return res.status(status).json({ error: e?.message || "AI 自动批改失败" });
   }
 
+  const pageAnnotations = {};
+  for (const p of pages) {
+    const rawAnns = grading.annotationsByPageNo.get(p.pageNo) || [];
+    pageAnnotations[String(p.id)] = normalizeAnnotations(rawAnns);
+  }
+
+  const hasAnyDetected = Boolean(grading.detectedStudent?.examNo || grading.detectedStudent?.name);
+  const match = matchStudentCandidates(grading.detectedStudent, target);
+  const confirmedUserId = req.body?.confirmedUserId ? Number(req.body.confirmedUserId) : 0;
+
+  // 当卷面识别到的考号/姓名与当前选中考生不完全一致，且未预先确认时，先返回候选匹配清单询问管理员
+  if (!confirmedUserId && hasAnyDetected && !match.isExactTargetMatch) {
+    return res.json({
+      ok: true,
+      needsConfirmation: true,
+      sourceUserId: target.id,
+      currentTarget: examUserDto(target),
+      pageIds: pages.map((p) => p.id),
+      discrepancyReasons: match.discrepancyReasons,
+      bestMatch: match.bestMatch,
+      candidates: match.candidates,
+      grading: {
+        score: grading.score,
+        fullScore: grading.fullScore,
+        teacherComment: grading.teacherComment,
+        items: grading.items,
+        wrongCount: grading.wrongCount,
+        model: grading.model,
+        pagesUpdated: 0,
+        autoSaved: false,
+        saved: null,
+        detectedStudent: grading.detectedStudent || null,
+        pageAnnotations,
+      },
+    });
+  }
+
+  const finalTarget = (confirmedUserId && getUser(confirmedUserId)) || target;
   const applyAnnotations = req.body?.applyAnnotations !== false;
   const autoSave = req.body?.autoSave !== false;
   let pagesUpdated = 0;
@@ -1121,12 +1549,20 @@ r.post("/admin/ai-grade", async (req, res) => {
 
   db.exec("BEGIN");
   try {
+    if (finalTarget.id !== target.id) {
+      let maxPage = db.prepare(
+        "SELECT COALESCE(MAX(page_no), 0) m FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?",
+      ).get(examId, subjectId, finalTarget.id).m;
+      const moveStmt = db.prepare("UPDATE exam_paper_pages SET user_id=?, page_no=? WHERE id=?");
+      for (const p of pages) {
+        maxPage += 1;
+        moveStmt.run(finalTarget.id, maxPage, p.id);
+      }
+    }
     if (applyAnnotations) {
       const updPage = db.prepare("UPDATE exam_paper_pages SET annotations_json=? WHERE id=?");
       for (const p of pages) {
-        const rawAnns = grading.annotationsByPageNo.get(p.pageNo) || [];
-        const cleanAnns = normalizeAnnotations(rawAnns);
-        updPage.run(JSON.stringify(cleanAnns), p.id);
+        updPage.run(JSON.stringify(pageAnnotations[String(p.id)] || []), p.id);
         pagesUpdated++;
       }
     }
@@ -1134,7 +1570,7 @@ r.post("/admin/ai-grade", async (req, res) => {
       savedScore = normalizeAndSaveScore({
         examId,
         subject: sub,
-        userId: target.id,
+        userId: finalTarget.id,
         gradedBy: req.user.id,
         payload: {
           score: grading.score,
@@ -1153,6 +1589,8 @@ r.post("/admin/ai-grade", async (req, res) => {
 
   res.json({
     ok: true,
+    needsConfirmation: false,
+    targetUser: examUserDto(finalTarget),
     grading: {
       score: grading.score,
       fullScore: grading.fullScore,
@@ -1163,6 +1601,116 @@ r.post("/admin/ai-grade", async (req, res) => {
       pagesUpdated,
       autoSaved: autoSave,
       saved: savedScore,
+      detectedStudent: grading.detectedStudent || null,
+      pageAnnotations,
+    },
+  });
+});
+
+// ---- 管理员确认 AI 识别错/模糊匹配的考生归属并正式写入成绩与批改 ----
+r.post("/admin/ai-grade/confirm", (req, res) => {
+  const examId = Number(req.body?.examId);
+  const subjectId = Number(req.body?.subjectId);
+  const targetUserId = Number(req.body?.targetUserId);
+  const sourceUserId = req.body?.sourceUserId ? Number(req.body.sourceUserId) : 0;
+
+  const ex = db.prepare("SELECT * FROM exams WHERE id=?").get(examId);
+  if (!ex) return res.status(404).json({ error: "考试不存在" });
+  const sub = db.prepare("SELECT * FROM exam_subjects WHERE id=? AND exam_id=?").get(subjectId, examId);
+  if (!sub) return res.status(404).json({ error: "科目不存在" });
+  const targetUser = getUser(targetUserId);
+  if (!targetUser) return res.status(404).json({ error: "所选确认考生不存在" });
+
+  const gradingIn = req.body?.grading;
+  if (!gradingIn || typeof gradingIn !== "object") {
+    return res.status(400).json({ error: "缺少 AI 批改结果数据" });
+  }
+
+  const pageIds = Array.isArray(req.body?.pageIds)
+    ? req.body.pageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    : [];
+  let targetPages = [];
+  if (pageIds.length) {
+    const placeholders = pageIds.map(() => "?").join(",");
+    targetPages = db.prepare(
+      `SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND id IN (${placeholders}) ORDER BY page_no ASC, id ASC`,
+    ).all(examId, subjectId, ...pageIds);
+  } else if (sourceUserId) {
+    targetPages = db.prepare(
+      "SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=? ORDER BY page_no ASC, id ASC",
+    ).all(examId, subjectId, sourceUserId);
+  }
+
+  const applyAnnotations = req.body?.applyAnnotations !== false;
+  const pageAnnotations = gradingIn.pageAnnotations && typeof gradingIn.pageAnnotations === "object"
+    ? gradingIn.pageAnnotations
+    : {};
+  let reassignedPapers = 0;
+  let pagesUpdated = 0;
+  let savedScore = null;
+
+  db.exec("BEGIN");
+  try {
+    if (sourceUserId && sourceUserId !== targetUser.id && targetPages.length) {
+      let maxPage = db.prepare(
+        "SELECT COALESCE(MAX(page_no), 0) m FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?",
+      ).get(examId, subjectId, targetUser.id).m;
+      const moveStmt = db.prepare("UPDATE exam_paper_pages SET user_id=?, page_no=? WHERE id=?");
+      for (const row of targetPages) {
+        if (row.user_id !== targetUser.id) {
+          maxPage += 1;
+          moveStmt.run(targetUser.id, maxPage, row.id);
+          reassignedPapers++;
+        }
+      }
+    }
+    if (applyAnnotations && targetPages.length) {
+      const updPage = db.prepare("UPDATE exam_paper_pages SET annotations_json=? WHERE id=?");
+      for (const row of targetPages) {
+        const rawAnns = pageAnnotations[String(row.id)] ?? pageAnnotations[row.id];
+        if (Array.isArray(rawAnns)) {
+          updPage.run(JSON.stringify(normalizeAnnotations(rawAnns)), row.id);
+          pagesUpdated++;
+        }
+      }
+    }
+
+    const itemsIn = Array.isArray(gradingIn.items) ? gradingIn.items : [];
+    savedScore = normalizeAndSaveScore({
+      examId,
+      subject: sub,
+      userId: targetUser.id,
+      gradedBy: req.user.id,
+      payload: {
+        score: gradingIn.score,
+        absent: false,
+        items: itemsIn,
+        useItemsSum: itemsIn.length > 0,
+        teacherComment: str(gradingIn.teacherComment),
+      },
+    });
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    return res.status(400).json({ error: e.message || "确认归档失败" });
+  }
+
+  res.json({
+    ok: true,
+    needsConfirmation: false,
+    reassignedPapers,
+    targetUser: examUserDto(targetUser),
+    grading: {
+      score: savedScore.score,
+      fullScore: gradingIn.fullScore || sub.full_score,
+      teacherComment: savedScore.teacherComment,
+      items: savedScore.items,
+      wrongCount: savedScore.items.filter((x) => x.wrong || x.got < x.full - 1e-6).length,
+      model: gradingIn.model || "",
+      pagesUpdated,
+      autoSaved: true,
+      saved: savedScore,
+      detectedStudent: gradingIn.detectedStudent || null,
     },
   });
 });
@@ -1529,6 +2077,21 @@ r.delete("/admin/papers/:pageId", (req, res) => {
   db.prepare("DELETE FROM exam_paper_pages WHERE id=?").run(pageId);
   unlinkPaperFiles([row]);
   res.json({ ok: true });
+});
+
+r.delete("/admin/papers", (req, res) => {
+  const examId = Number(req.query.examId ?? req.body?.examId);
+  const subjectId = Number(req.query.subjectId ?? req.body?.subjectId);
+  const target = resolveUser(req.query.userId ?? req.body?.userId, req.query.examNo ?? req.body?.examNo);
+  if (!examId || !subjectId || !target) {
+    return res.status(400).json({ error: "缺少考试、科目或考生参数" });
+  }
+  const rows = db.prepare(
+    "SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?",
+  ).all(examId, subjectId, target.id);
+  db.prepare("DELETE FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?").run(examId, subjectId, target.id);
+  unlinkPaperFiles(rows);
+  res.json({ ok: true, deleted: rows.length });
 });
 
 export default r;
