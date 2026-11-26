@@ -29,6 +29,8 @@
     activeTab: "report",
     paperFilterExamId: 0,
     paperFilterSubId: 0,
+    scoringSubId: 0,
+    scoringUserId: 0,
   };
 
   function fail(err) {
@@ -95,7 +97,11 @@
     if (tab.indexOf("admin-") === 0 && (!state.me || state.me.role !== "admin")) tab = "report";
     state.activeTab = tab;
     if (opts && opts.examId) state.selectedExamId = Number(opts.examId);
-    if (opts && opts.paperSubId) state.paperFilterSubId = Number(opts.paperSubId);
+    if (opts && opts.paperSubId) {
+      state.paperFilterSubId = Number(opts.paperSubId);
+      state.scoringSubId = Number(opts.paperSubId);
+    }
+    if (opts && opts.userId) state.scoringUserId = Number(opts.userId);
     navBtns.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === tab)); });
     history.replaceState(null, "", "/exam#" + tab);
     renderActiveTab();
@@ -655,26 +661,59 @@
     loadAndDraw();
   }
 
-  /* ---------- 4. 电子红笔渲染工具 ---------- */
-  function renderAnnotationsToSvg(svg, annotations, interactive, onRemoveIdx) {
+  /* ---------- 4. 比例一致电子红笔图层 & 公共 AI 配置弹窗 & 客观/主观拆分阅卷组件 ---------- */
+  function renderAnnotationsToSvg(svg, annotations, interactive, onRemoveIdx, aspectRatio) {
+    var ar = (aspectRatio && Number.isFinite(aspectRatio) && aspectRatio > 0.2 && aspectRatio < 5) ? aspectRatio : 1.38;
+    var vbW = 1000;
+    var vbH = Math.round(1000 * ar);
+    svg.setAttribute("viewBox", "0 0 " + vbW + " " + vbH);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     svg.textContent = "";
+
     (annotations || []).forEach(function (a, idx) {
-      var x = a.x * 1000, y = a.y * 1000;
-      var col = a.color || "#ef4444";
-      var g = svgEl("g", { stroke: col, fill: "none", "stroke-width": "7", "stroke-linecap": "round", "stroke-linejoin": "round", style: interactive ? "cursor:pointer" : "" });
+      var x = a.x * vbW;
+      var y = a.y * vbH;
+      var col = a.color || "#e11d48";
+      var sz = a.size || "md";
+      var sw = sz === "sm" ? "4.2" : (sz === "lg" ? "5.8" : "5.2");
+      var g = svgEl("g", {
+        stroke: col,
+        fill: "none",
+        "stroke-width": sw,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        style: interactive ? "cursor:pointer" : "",
+      });
+
       if (a.type === "check") {
-        g.appendChild(svgEl("path", { d: "M" + (x - 16) + " " + y + " L" + (x - 3) + " " + (y + 13) + " L" + (x + 22) + " " + (y - 16) }));
+        if (sz === "sm") {
+          g.appendChild(svgEl("path", { d: "M" + (x - 9) + " " + (y + 1) + " L" + (x - 2) + " " + (y + 8) + " L" + (x + 12) + " " + (y - 10) }));
+        } else {
+          g.appendChild(svgEl("path", { d: "M" + (x - 13) + " " + (y + 2) + " L" + (x - 3) + " " + (y + 13) + " L" + (x + 18) + " " + (y - 15) }));
+        }
       } else if (a.type === "cross") {
-        g.appendChild(svgEl("path", { d: "M" + (x - 13) + " " + (y - 13) + " L" + (x + 13) + " " + (y + 13) + " M" + (x + 13) + " " + (y - 13) + " L" + (x - 13) + " " + (y + 13) }));
+        var cr = sz === "sm" ? 8 : 12;
+        g.appendChild(svgEl("path", {
+          d: "M" + (x - cr) + " " + (y - cr) + " L" + (x + cr) + " " + (y + cr) + " M" + (x + cr) + " " + (y - cr) + " L" + (x - cr) + " " + (y + cr),
+        }));
       } else if (a.type === "circle") {
-        g.appendChild(svgEl("circle", { cx: x, cy: y, r: "22" }));
+        g.appendChild(svgEl("circle", { cx: x, cy: y, r: sz === "sm" ? "14" : "19" }));
       } else if (a.type === "line") {
-        g.appendChild(svgEl("line", { x1: x, y1: y, x2: (a.x2 || a.x) * 1000, y2: (a.y2 || a.y) * 1000 }));
+        g.appendChild(svgEl("line", { x1: x, y1: y, x2: (a.x2 || a.x) * vbW, y2: (a.y2 || a.y) * vbH }));
       } else if (a.type === "text") {
+        var fs = sz === "lg" ? 34 : (sz === "sm" ? 21 : 25);
+        var anchor = a.x > 0.86 ? "end" : (a.x < 0.12 ? "start" : "middle");
         var t = svgEl("text", {
-          x: x, y: y, fill: col,
-          stroke: "rgba(255,255,255,0.92)", "stroke-width": "6", "paint-order": "stroke",
-          "font-size": "28", "font-weight": "700",
+          x: x,
+          y: y,
+          fill: col,
+          stroke: "rgba(255,255,255,0.92)",
+          "stroke-width": sz === "lg" ? "5.5" : "4",
+          "paint-order": "stroke",
+          "text-anchor": anchor,
+          "font-family": "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          "font-size": String(fs),
+          "font-weight": "700",
         });
         t.textContent = a.text;
         g.appendChild(t);
@@ -686,7 +725,211 @@
     });
   }
 
-  /* ---------- 5. 答题卡与原卷查看器 ---------- */
+  function syncSvgAspectRatio(img, svg, annotations, interactive, onRemoveIdx, page) {
+    var initAr = (page && page.width > 0 && page.height > 0) ? (page.height / page.width) : 1.38;
+    renderAnnotationsToSvg(svg, annotations, interactive, onRemoveIdx, initAr);
+    img.addEventListener("load", function () {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        renderAnnotationsToSvg(svg, annotations, interactive, onRemoveIdx, img.naturalHeight / img.naturalWidth);
+      }
+    });
+  }
+
+  function openAiConfigModal(onSaved) {
+    var dlg = el("dialog", { class: "ui-dialog ui", style: "width:min(100% - 1.5rem, 32rem)", "aria-label": "DeepSeek AI 配置" });
+    dlg.setAttribute("data-lenis-prevent", "");
+
+    var statusBadge = label("检测配置中…");
+    var keyInp = el("input", { type: "password", placeholder: "输入 DeepSeek API Key（sk-...），留空保持已存密钥" });
+    var baseInp = el("input", { type: "url", value: "https://api.deepseek.com", placeholder: "https://api.deepseek.com" });
+    var modelInp = el("input", { type: "text", value: "deepseek-flash", placeholder: "deepseek-flash" });
+    var saveBtn = el("button", { type: "button", class: "btn btn-primary", text: "保存配置" });
+    var cancelBtn = el("button", { type: "button", class: "btn", text: "关闭" });
+
+    function applyBadge(cfg) {
+      if (!cfg) return;
+      if (cfg.baseUrl) baseInp.value = cfg.baseUrl;
+      if (cfg.model) modelInp.value = cfg.model;
+      statusBadge.textContent = cfg.configured
+        ? "已就绪（" + cfg.maskedKey + " · " + cfg.model + "）"
+        : "未配置 API Key";
+      statusBadge.className = "label " + (cfg.configured ? "ui-soft-success" : "ui-soft-attention");
+    }
+
+    GS.api("GET", "/api/exam/admin/ai-config").then(function (r) {
+      applyBadge(r.config);
+    }).catch(function () {
+      statusBadge.textContent = "加载失败";
+    });
+
+    dlg.append(
+      el("header", null, icon("gear"), el("span", { class: "grow", text: "DeepSeek AI 识卷与阅卷配置" }), statusBadge),
+      el("div", { class: "dialog-body", style: "display:grid;gap:.85rem" },
+        el("p", { class: "small muted", style: "margin:0", text: "用于题库拍照识卷（支持手写卷+标准答案）与答题卡自动阅卷（支持手绘方框与主观题弹性评分）。" }),
+        el("div", { class: "field" }, el("label", { text: "DeepSeek API Key" }), keyInp),
+        el("div", { class: "field", style: "margin-top:0" }, el("label", { text: "API Base URL" }), baseInp),
+        el("div", { class: "field", style: "margin-top:0" }, el("label", { text: "视觉模型名" }), modelInp),
+      ),
+      el("footer", null, cancelBtn, saveBtn),
+    );
+    document.body.appendChild(dlg);
+    function close() { dlg.close(); dlg.remove(); }
+    cancelBtn.addEventListener("click", close);
+    dlg.addEventListener("cancel", function (e) { e.preventDefault(); close(); });
+    saveBtn.addEventListener("click", function () {
+      var done = GS.busy(saveBtn, "保存中…");
+      var body = { baseUrl: baseInp.value.trim(), model: modelInp.value.trim() };
+      if (keyInp.value.trim()) body.apiKey = keyInp.value.trim();
+      GS.api("PUT", "/api/exam/admin/ai-config", body).then(function (r) {
+        keyInp.value = "";
+        applyBadge(r.config);
+        GS.toast("DeepSeek API 配置已保存");
+        if (onSaved) onSaved(r.config);
+        close();
+      }).catch(fail).finally(done);
+    });
+    dlg.showModal();
+  }
+
+  function isObjectiveDraft(it) {
+    var qt = String(it && it.qtype || "").trim();
+    if (qt === "choice" || qt === "multi_choice" || qt === "judge" || qt === "listening") return true;
+    if (qt === "essay" || qt === "blank") return false;
+    var sec = String(it && it.section || "");
+    if (/(选择|单选|多选|判断|听力)/.test(sec)) return true;
+    if (/(主观|简答|论述|计算|填空|代码|编程|大题)/.test(sec)) return false;
+    var ans = String(it && it.answer || "").trim();
+    return Number(it && it.full || 0) <= 10 && ans.length > 0 && ans.length <= 6 && /^[A-Za-z对错TF✓✗\s,;、]+$/i.test(ans);
+  }
+
+  function renderGradingBreakdown(container, items, opts) {
+    opts = opts || {};
+    container.textContent = "";
+    if (!items || !items.length) {
+      container.append(el("p", { class: "muted small", style: "margin:0", text: opts.emptyText || "暂未录入小题批改细目。" }));
+      return;
+    }
+
+    var onlyWrong = !!opts.onlyWrong;
+    var list = onlyWrong ? items.filter(function (x) { return x.wrong || x.got < x.full - 1e-6; }) : items;
+    if (!list.length) {
+      container.append(el("p", { class: "muted small", style: "margin:0", text: "暂无失分题，继续保持！" }));
+      return;
+    }
+
+    var objItems = list.filter(isObjectiveDraft);
+    var subjItems = list.filter(function (x) { return !isObjectiveDraft(x); });
+
+    if (objItems.length) {
+      var objGot = Math.round(objItems.reduce(function (s, x) { return s + (Number(x.got) || 0); }, 0) * 10) / 10;
+      var objFull = Math.round(objItems.reduce(function (s, x) { return s + (Number(x.full) || 0); }, 0) * 10) / 10;
+      var detailBox = el("div", { class: "small muted", hidden: true, style: "padding:.45rem .6rem;border-radius:var(--ui-r);background:var(--pg-bg-sunken);border:1px solid var(--ui-border)" });
+      var matrix = el("div", { class: "obj-matrix" });
+
+      objItems.forEach(function (it) {
+        var isWrong = !!it.wrong || it.got < it.full - 1e-6;
+        var deduct = Math.round((it.full - it.got) * 10) / 10;
+        var ansTxt = it.studentAnswer
+          ? (isWrong && it.answer ? it.studentAnswer + " → " + it.answer : it.studentAnswer)
+          : (it.answer || "—");
+        var chip = el(opts.editable ? "button" : "button", {
+          type: "button",
+          class: "obj-chip " + (isWrong ? "is-wrong" : "is-ok") + (opts.editable ? " is-editable" : ""),
+          title: (it.title || ("第 " + it.no + " 题")) + (it.answer ? " · 标准答案：" + it.answer : "") + (it.aiComment ? " · " + it.aiComment : ""),
+          onclick: function () {
+            if (opts.editable) {
+              it.got = (it.got >= it.full - 1e-6) ? 0 : it.full;
+              it.wrong = it.got < it.full - 1e-6;
+              if (opts.onChange) opts.onChange();
+              renderGradingBreakdown(container, items, opts);
+            } else {
+              detailBox.hidden = false;
+              detailBox.textContent = "#" + it.no + (it.title ? " " + it.title : "")
+                + " | 作答：" + (it.studentAnswer || "未识别")
+                + " | 标答：" + (it.answer || "—")
+                + " | 得分：" + it.got + "/" + it.full
+                + (it.aiComment ? "（" + it.aiComment + "）" : "");
+            }
+          },
+        },
+          el("div", { class: "obj-chip-top" },
+            el("span", { text: "#" + it.no }),
+            el("span", { class: isWrong ? "item-pill-loss" : "item-pill-full", text: isWrong ? ("-" + deduct) : "✓" }),
+          ),
+          el("div", { class: "obj-chip-ans", text: ansTxt }),
+        );
+        matrix.append(chip);
+      });
+
+      container.append(
+        el("div", { class: "grading-sec-title" },
+          el("span", { text: "客观题答题卡（" + objGot + " / " + objFull + " 分）" }),
+          el("span", { class: "muted", text: opts.editable ? "点击题卡可快速切换对/错" : "点击可查看单题详情" }),
+        ),
+        matrix,
+        detailBox,
+      );
+    }
+
+    if (subjItems.length) {
+      var subjGot = Math.round(subjItems.reduce(function (s, x) { return s + (Number(x.got) || 0); }, 0) * 10) / 10;
+      var subjFull = Math.round(subjItems.reduce(function (s, x) { return s + (Number(x.full) || 0); }, 0) * 10) / 10;
+      var subjHost = el("div", { class: "subj-list" });
+
+      subjItems.forEach(function (it) {
+        var isWrong = !!it.wrong || it.got < it.full - 1e-6;
+        var card = el("div", { class: "subj-card " + (isWrong ? "is-wrong" : "is-ok") });
+        var rightScoreNode;
+        if (opts.editable) {
+          var scoreField = el("input", {
+            type: "number",
+            step: "0.5",
+            min: "0",
+            max: String(it.full),
+            value: String(it.got),
+            oninput: function () {
+              it.got = Math.max(0, Math.min(it.full, Number(this.value) || 0));
+              it.wrong = it.got < it.full - 1e-6;
+              card.className = "subj-card " + (it.wrong ? "is-wrong" : "is-ok");
+              if (opts.onChange) opts.onChange();
+            },
+          });
+          rightScoreNode = el("div", { class: "subj-score-edit" }, scoreField, el("span", { class: "muted", text: "/ " + it.full + " 分" }));
+        } else {
+          rightScoreNode = el("span", {
+            class: isWrong ? "item-pill-loss" : "item-pill-full",
+            text: isWrong ? ("-" + Math.round((it.full - it.got) * 10) / 10 + "（" + it.got + "/" + it.full + "）") : ("✓ " + it.got + "/" + it.full),
+          });
+        }
+
+        card.append(
+          el("div", { class: "paper-grade-head" },
+            el("div", { class: "row" },
+              el("strong", { text: "#" + it.no }),
+              it.section || it.qtype ? label(qtypeLabel(it.qtype, it.section)) : false,
+              it.tag ? label(it.tag) : false,
+            ),
+            rightScoreNode,
+          ),
+          it.title ? el("div", { class: "muted", text: it.title }) : false,
+          it.studentAnswer ? el("div", { text: "考生作答：" + it.studentAnswer }) : false,
+          it.answer ? el("div", { style: "color:var(--pg-ok-fg)", text: "标准答案：" + it.answer }) : false,
+          it.aiComment ? el("div", { class: "muted", text: "批改意见：" + it.aiComment }) : false,
+        );
+        subjHost.append(card);
+      });
+
+      container.append(
+        el("div", { class: "grading-sec-title", style: objItems.length ? "margin-top:.35rem" : "" },
+          el("span", { text: "主观题 / 大题明细（" + subjGot + " / " + subjFull + " 分）" }),
+          el("span", { class: "muted", text: subjItems.length + " 题" }),
+        ),
+        subjHost,
+      );
+    }
+  }
+
+  /* ---------- 5. 我的答卷（学生查看原卷与批改明细；管理员一键跳转阅卷中心） ---------- */
   function renderPapersTab() {
     root.textContent = "";
     if (!state.exams.length) {
@@ -700,9 +943,24 @@
 
     var exSel = el("select", { class: "exam-select", "aria-label": "选择考试" },
       state.exams.map(function (ex) { return el("option", { value: ex.id, selected: ex.id === examId, text: ex.title }); }));
-    var subSel = el("select", { "aria-label": "选择科目", style: "max-width:12rem" });
+    var subSel = el("select", { "aria-label": "选择科目", style: "max-width:14rem" });
     var stageHost = el("div");
-    var bar = el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, exSel, subSel));
+    var adminGoBtn = state.me.role === "admin" ? el("button", {
+      type: "button",
+      class: "btn btn-sm",
+      text: "前往阅卷中心批改 →",
+      onclick: function () {
+        switchTab("admin-scoring", {
+          examId: Number(exSel.value) || state.paperFilterExamId,
+          paperSubId: Number(subSel.value) || 0,
+          userId: repCache && repCache.targetUser ? repCache.targetUser.id : undefined,
+        });
+      },
+    }) : null;
+    var bar = el("div", { class: "exam-bar" },
+      el("div", { class: "exam-bar-left" }, exSel, subSel),
+      adminGoBtn ? el("div", { class: "exam-bar-right" }, adminGoBtn) : null,
+    );
     root.append(bar, stageHost);
 
     var repCache = null;
@@ -743,22 +1001,15 @@
       if (!pages.length) {
         stageHost.append(el("div", { class: "box" }, el("div", { class: "blankslate" },
           icon("window"),
-          el("h3", { text: "该科目暂未上传电子扫描试卷" }),
-          el("p", { text: state.me.role === "admin" ? "可以直接用手机拍照或导入图片，使用内置扫描全能王转换并上传。" : "管理员上传并发布扫描试卷后，可在此高清查看原卷与批改痕迹。" }),
+          el("h3", { text: "该科目暂未上传电子扫描答卷" }),
+          el("p", { text: state.me.role === "admin" ? "请前往左侧「阅卷中心」统一拍照或上传答题卡原卷。" : "管理员上传并发布扫描答卷后，可在此高清查看原卷与红笔批改痕迹。" }),
           state.me.role === "admin" && sub ? el("button", {
-            type: "button", class: "btn btn-primary", text: "📷 拍卷扫描并提交成绩（管理员）",
+            type: "button", class: "btn btn-primary", text: "前往阅卷中心扫卷 →",
             onclick: function () {
-              ExamScanner.open({
-                isAdmin: true,
+              switchTab("admin-scoring", {
                 examId: repCache.exam.id,
-                subjectId: sub.id,
-                subject: sub,
-                examStatus: repCache.exam.status,
-                student: repCache.targetUser,
-                initialScore: sub.mine && !sub.mine.absent ? sub.mine.score : "",
-                initialComment: sub.mine ? sub.mine.teacherComment : "",
-                nextPageNo: 1,
-                onUploaded: function () { loadExamPapers(); },
+                paperSubId: sub.id,
+                userId: repCache.targetUser.id,
               });
             },
           }) : null,
@@ -779,8 +1030,8 @@
         }));
 
       var img = el("img", { src: page.url, alt: sub.name + " 第 " + page.pageNo + " 页" });
-      var svg = svgEl("svg", { class: "paper-ann-svg", viewBox: "0 0 1000 1000", preserveAspectRatio: "none" });
-      if (showAnn) renderAnnotationsToSvg(svg, page.annotations, false);
+      var svg = svgEl("svg", { class: "paper-ann-svg" });
+      if (showAnn) syncSvgAspectRatio(img, svg, page.annotations, false, null, page);
       else svg.style.display = "none";
 
       var wrap = el("div", { class: "paper-canvas-wrap" }, img, svg);
@@ -788,33 +1039,6 @@
         wrap.style.transform = "scale(" + zoom + ") rotate(" + rot + "deg)";
       }
       applyTransform();
-
-      var onlyWrong = false;
-      var aiTriggerBtn = state.me.role === "admin" ? el("button", {
-        type: "button", class: "btn btn-sm btn-primary",
-        text: "🤖 AI 自动批改答题卡",
-        onclick: function () {
-          var done = GS.busy(aiTriggerBtn, "AI 批改中…");
-          ExamScanner.runAiGradeWithConfirm({
-            examId: repCache.exam.id,
-            subjectId: sub.id,
-            userId: repCache.targetUser.id,
-            applyAnnotations: true,
-            autoSave: true,
-          }).then(function (r) {
-            if (!r || !r.confirmed) {
-              GS.toast("已取消本次成绩入库");
-              return;
-            }
-            if (r.targetUser && r.targetUser.id !== repCache.targetUser.id) {
-              state.previewUserQuery = { userId: r.targetUser.id, examNo: r.targetUser.examNo };
-            }
-            var who = r.targetUser ? (r.targetUser.displayName || r.targetUser.username) : (repCache.targetUser.displayName || repCache.targetUser.username);
-            GS.toast("AI 批改已保存至「" + who + "」：" + r.grading.score + " / " + r.grading.fullScore + " 分");
-            loadExamPapers();
-          }).catch(fail).finally(done);
-        },
-      }) : null;
 
       var tools = el("div", { class: "exam-bar", style: "margin-bottom:.2rem" },
         el("div", { class: "exam-bar-left" },
@@ -829,99 +1053,22 @@
           }),
           el("a", { class: "btn btn-sm", href: page.url, download: (repCache.targetUser.examNo || "paper") + "-p" + page.pageNo + ".jpg", text: "下载原卷" }),
         ),
-        state.me.role === "admin" ? el("div", { class: "exam-bar-right" },
-          aiTriggerBtn,
-          el("button", {
-            type: "button", class: "btn btn-sm", text: "在线红笔批改",
-            onclick: function () { openAnnotationDialog(page, drawViewer); },
-          }),
-          el("button", {
-            type: "button", class: "btn btn-sm", text: "📷 继续拍卷",
-            onclick: function () {
-              ExamScanner.open({
-                isAdmin: true,
-                examId: repCache.exam.id,
-                subjectId: sub.id,
-                subject: sub,
-                examStatus: repCache.exam.status,
-                student: repCache.targetUser,
-                initialScore: sub.mine && !sub.mine.absent ? sub.mine.score : "",
-                initialComment: sub.mine ? sub.mine.teacherComment : "",
-                nextPageNo: pages[pages.length - 1].pageNo + 1,
-                onUploaded: function () { loadExamPapers(); },
-              });
-            },
-          }),
-          el("button", {
-            type: "button", class: "btn btn-sm btn-danger", text: "删除本页",
-            onclick: function () {
-              GS.dialog({
-                title: "删除第 " + page.pageNo + " 页扫描件",
-                danger: true,
-                confirm: "确认删除",
-                text: "删除后不可恢复，确定删除该页答题卡原卷？",
-              }).then(function (ok) {
-                if (!ok) return;
-                return GS.api("DELETE", "/api/exam/admin/papers/" + page.id).then(function () {
-                  GS.toast("已删除第 " + page.pageNo + " 页原卷");
-                  loadExamPapers();
-                });
-              }).catch(fail);
-            },
-          }),
-          pages.length > 1 ? el("button", {
-            type: "button", class: "btn btn-sm btn-danger", text: "清空本科原卷",
-            onclick: function () {
-              GS.dialog({
-                title: "清空「" + sub.name + "」全部原卷",
-                danger: true,
-                confirm: "全部删除",
-                text: "将永久删除该考生在此科目的全部 " + pages.length + " 页扫描原卷。",
-              }).then(function (ok) {
-                if (!ok) return;
-                return GS.api("DELETE", "/api/exam/admin/papers?examId=" + repCache.exam.id + "&subjectId=" + sub.id + "&userId=" + repCache.targetUser.id).then(function (r) {
-                  GS.toast("已清空 " + (r.deleted || pages.length) + " 页原卷");
-                  loadExamPapers();
-                });
-              }).catch(fail);
-            },
-          }) : null,
-        ) : null,
       );
 
+      var onlyWrong = false;
       var items = (sub.mine && Array.isArray(sub.mine.items)) ? sub.mine.items : [];
-      var gradeListHost = el("div", { class: "paper-grade-list" });
+      var gradeListHost = el("div", { style: "display:grid;gap:.65rem" });
       var filterAllBtn = el("button", { type: "button", class: "btn btn-sm is-on", text: "全部 (" + items.length + ")" });
       var wrongCount = items.filter(function (x) { return x.wrong; }).length;
       var filterWrongBtn = el("button", { type: "button", class: "btn btn-sm", text: "仅看失分 (" + wrongCount + ")" });
 
       function drawGradeItems() {
-        gradeListHost.textContent = "";
         filterAllBtn.classList.toggle("is-on", !onlyWrong);
         filterWrongBtn.classList.toggle("is-on", onlyWrong);
-        var shown = onlyWrong ? items.filter(function (x) { return x.wrong; }) : items;
-        if (!shown.length) {
-          gradeListHost.append(el("p", { class: "muted small", text: items.length ? "暂无失分题，继续保持！" : "暂未录入小题批改明细（等待教师/AI批改）" }));
-          return;
-        }
-        shown.forEach(function (it) {
-          gradeListHost.append(el("div", { class: "paper-grade-item " + (it.wrong ? "is-wrong" : "is-ok") },
-            el("div", { class: "paper-grade-head" },
-              el("div", { class: "row" },
-                el("strong", { text: "#" + it.no }),
-                it.section || it.qtype ? label(qtypeLabel(it.qtype, it.section)) : false,
-                label(it.tag || "综合"),
-              ),
-              el("span", {
-                class: it.wrong ? "item-pill-loss" : "item-pill-full",
-                text: it.wrong ? ("-" + Math.round((it.full - it.got) * 10) / 10 + "（" + it.got + "/" + it.full + "）") : ("✓ " + it.got + "/" + it.full),
-              }),
-            ),
-            it.title ? el("div", { class: "small muted", text: it.title }) : false,
-            it.studentAnswer ? el("div", { class: "small", text: "考生作答：" + it.studentAnswer }) : false,
-            it.answer ? el("div", { class: "small", style: "color:var(--pg-ok-fg)", text: "参考答案：" + it.answer }) : false,
-            it.aiComment ? el("div", { class: "small muted", text: "批改意见：" + it.aiComment }) : false,
-          ));
+        renderGradingBreakdown(gradeListHost, items, {
+          editable: false,
+          onlyWrong: onlyWrong,
+          emptyText: "暂未录入小题批改明细（等待教师/AI 批改）",
         });
       }
       filterAllBtn.addEventListener("click", function () { onlyWrong = false; drawGradeItems(); });
@@ -930,7 +1077,7 @@
 
       var gradeSide = el("aside", { class: "paper-grade-side" },
         el("div", { class: "exam-card-head", style: "margin-bottom:0" },
-          el("h3", { text: "小题得分与批改明细" }),
+          el("h3", { text: "得分卡与批改明细" }),
           sub.mine ? label(sub.mine.absent ? "缺考" : (sub.mine.score + " / " + sub.fullScore + " 分 · " + sub.mine.grade), sub.mine.absent ? "danger" : "accent") : label("未出分"),
         ),
         sub.mine && sub.mine.teacherComment ? el("div", { class: "teacher-note", style: "padding:.55rem .75rem;border-radius:var(--ui-r);background:var(--pg-bg-sunken);border-left:3px solid var(--pg-accent);font-size:var(--pg-text-xs)", text: sub.mine.teacherComment }) : false,
@@ -953,11 +1100,11 @@
     var tool = "check";
     var anns = (page.annotations || []).map(function (a) { return Object.assign({}, a); });
     var img = el("img", { src: page.url, alt: "批改试卷", style: "max-width:100%;max-height:60vh;display:block" });
-    var svg = svgEl("svg", { class: "paper-ann-svg is-interactive", viewBox: "0 0 1000 1000", preserveAspectRatio: "none" });
+    var svg = svgEl("svg", { class: "paper-ann-svg is-interactive" });
     var wrap = el("div", { class: "paper-canvas-wrap" }, img, svg);
 
     function redraw() {
-      renderAnnotationsToSvg(svg, anns, true, function (idx) { anns.splice(idx, 1); redraw(); });
+      syncSvgAspectRatio(img, svg, anns, true, function (idx) { anns.splice(idx, 1); redraw(); }, page);
     }
     redraw();
 
@@ -968,9 +1115,9 @@
       if (tool === "text") {
         var txt = window.prompt("输入批改文字/扣分标记（如 -3 或 思路清晰）", "-2");
         if (!txt || !txt.trim()) return;
-        anns.push({ type: "text", x: x, y: y, text: txt.trim().slice(0, 32), color: "#ef4444" });
+        anns.push({ type: "text", x: x, y: y, text: txt.trim().slice(0, 32), color: "#e11d48", size: "sm" });
       } else {
-        anns.push({ type: tool, x: x, y: y, color: "#ef4444" });
+        anns.push({ type: tool, x: x, y: y, color: "#e11d48", size: "md" });
       }
       redraw();
     });
@@ -1140,6 +1287,7 @@
       el("div", { class: "exam-bar" },
         el("div", { class: "exam-bar-left" }, el("span", { class: "muted small", text: "共 " + state.exams.length + " 场考试（草稿仅管理员可见，发布后员工可查）" })),
         el("div", { class: "exam-bar-right" },
+          el("button", { type: "button", class: "btn btn-sm", onclick: function () { openAiConfigModal(); } }, "🔑 AI 配置"),
           el("button", { type: "button", class: "btn btn-primary", onclick: function () { openExamModal(null); } }, icon("plus"), "新建考试"),
         ),
       ),
@@ -1326,23 +1474,18 @@
       busy: false,
       aiConfig: null,
     };
-    var docInput = el("input", {
+    var unifiedInput = el("input", {
       type: "file",
-      accept: ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown",
-      hidden: true,
-    });
-    var photoAlbumInput = el("input", {
-      type: "file",
-      accept: "image/jpeg,image/png,image/webp,image/*",
       multiple: true,
+      accept: "image/jpeg,image/png,image/webp,image/*,.pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown",
       hidden: true,
     });
 
-    var pickPhotosBtn = el("button", {
+    var pickUnifiedBtn = el("button", {
       type: "button",
       class: "btn btn-sm btn-primary",
-      onclick: function () { photoAlbumInput.click(); },
-    }, icon("plus"), "📷 选试卷/答案照片 (AI)");
+      onclick: function () { unifiedInput.click(); },
+    }, icon("plus"), "📄 上传试卷 / 答案照片或 PDF / Word");
     var scanCropAiBtn = el("button", {
       type: "button",
       class: "btn btn-sm",
@@ -1354,88 +1497,58 @@
           onExtract: function (pagesOut) { submitPhotosToAI(pagesOut); },
         });
       },
-    }, icon("search"), "切边扫描识卷");
-    var pickDocBtn = el("button", {
+    }, icon("search"), "✂️ 切边扫描");
+    var aiCfgBtn = el("button", {
       type: "button",
       class: "btn btn-sm",
-      onclick: function () { docInput.click(); },
-    }, icon("layers"), "传 PDF / Word");
-    var aiCfgToggleBtn = el("button", {
-      type: "button",
-      class: "btn btn-sm",
-      text: "🔑 DeepSeek API",
-      onclick: function () { aiCfgPanel.hidden = !aiCfgPanel.hidden; },
+      text: "🔑 AI 配置",
+      onclick: function () { openAiConfigModal(refreshAiConfigBadge); },
     });
 
-    var aiStatusBadge = label("检测 AI 配置中…");
-    var aiKeyInp = el("input", { type: "password", placeholder: "输入 DeepSeek API Key (sk-...)" });
-    var aiBaseInp = el("input", { type: "url", value: "https://api.deepseek.com", placeholder: "https://api.deepseek.com" });
-    var aiModelInp = el("input", { type: "text", value: "deepseek-flash", placeholder: "deepseek-flash" });
-    var aiSaveCfgBtn = el("button", { type: "button", class: "btn btn-sm btn-primary", text: "保存配置" });
-    var aiCfgPanel = el("div", { class: "doc-ai-config", hidden: true },
-      el("div", { class: "row", style: "justify-content:space-between" },
-        el("span", { class: "small", text: "拍照识卷支持手写试卷与独立标准答案页，默认调用 DeepSeek 视觉模型（deepseek-flash）" }),
-        aiStatusBadge,
-      ),
-      el("div", { class: "doc-ai-grid" },
-        el("div", { class: "field" }, el("label", { text: "DeepSeek API Key（留空保持已存密钥）" }), aiKeyInp),
-        el("div", { class: "field" }, el("label", { text: "API Base URL" }), aiBaseInp),
-        el("div", { class: "field" }, el("label", { text: "视觉模型名" }), aiModelInp),
-        aiSaveCfgBtn,
-      ),
-    );
-
+    var aiStatusBadge = label("检测 AI 中…");
     function refreshAiConfigBadge(cfg) {
-      parseState.aiConfig = cfg;
+      parseState.aiConfig = cfg || null;
       if (!cfg) return;
-      if (cfg.baseUrl) aiBaseInp.value = cfg.baseUrl;
-      if (cfg.model) aiModelInp.value = cfg.model;
       aiStatusBadge.textContent = cfg.configured
-        ? "已配置 (" + cfg.maskedKey + " · " + cfg.model + ")"
-        : "未配置 API Key";
+        ? "AI 就绪 (" + cfg.maskedKey + ")"
+        : "未配置 AI Key";
       aiStatusBadge.className = "label " + (cfg.configured ? "ui-soft-success" : "ui-soft-attention");
-      aiCfgToggleBtn.textContent = cfg.configured ? "🔑 DeepSeek 已就绪" : "🔑 配置 DeepSeek";
+      aiCfgBtn.textContent = cfg.configured ? "🔑 AI 配置" : "🔑 配置 AI Key";
     }
 
-    GS.api("GET", "/api/exam/admin/ai-config").then(function (r) {
+    var aiCfgPromise = GS.api("GET", "/api/exam/admin/ai-config").then(function (r) {
       refreshAiConfigBadge(r.config);
-    }).catch(function () {});
-
-    aiSaveCfgBtn.addEventListener("click", function () {
-      var done = GS.busy(aiSaveCfgBtn, "保存中…");
-      var body = { baseUrl: aiBaseInp.value.trim(), model: aiModelInp.value.trim() };
-      if (aiKeyInp.value.trim()) body.apiKey = aiKeyInp.value.trim();
-      GS.api("PUT", "/api/exam/admin/ai-config", body).then(function (r) {
-        aiKeyInp.value = "";
-        refreshAiConfigBadge(r.config);
-        GS.toast("DeepSeek API 配置已保存");
-      }).catch(fail).finally(done);
-    });
+      return r.config;
+    }).catch(function () { return null; });
 
     var docStatusEl = el("span", {
       class: "small muted",
-      text: "支持手写试卷照片 + 独立手写标准答案页（支持多图同时选择合并识别），或拖拽 / 上传 PDF、Word (.docx)、TXT、MD",
+      text: "一键上传或拖入：手写试卷 / 答案照片（支持多图合并识题）或 PDF / Word / TXT / MD 文档",
     });
     var docResultHost = el("div");
     var docBox = el("div", { class: "doc-import-box" },
-      docInput,
-      photoAlbumInput,
+      unifiedInput,
       el("div", { class: "doc-import-top" },
-        el("strong", { class: "small", text: "智能识卷录入（照片 / 扫描件 / PDF / Word）" }),
-        el("div", { class: "doc-import-tabs" }, pickPhotosBtn, scanCropAiBtn, pickDocBtn, aiCfgToggleBtn),
+        el("div", { class: "row" },
+          el("strong", { class: "small", text: "智能识卷录入" }),
+          aiStatusBadge,
+        ),
+        el("div", { class: "doc-import-tabs" }, pickUnifiedBtn, scanCropAiBtn, aiCfgBtn),
       ),
       docStatusEl,
-      aiCfgPanel,
       docResultHost,
     );
 
     function compressImageFileToDataUrl(file) {
+      if (window.ExamScanner && typeof window.ExamScanner.compressCleanPhoto === "function") {
+        return window.ExamScanner.compressCleanPhoto(file).then(function (out) { return out.imageData; });
+      }
       return new Promise(function (resolve, reject) {
         var url = URL.createObjectURL(file);
         var img = new Image();
         img.onload = function () {
           URL.revokeObjectURL(url);
-          var maxSide = 1800;
+          var maxSide = 2000;
           var w = img.naturalWidth || img.width;
           var h = img.naturalHeight || img.height;
           if (!w || !h) return reject(new Error("无法读取图片尺寸"));
@@ -1449,7 +1562,7 @@
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, cw, ch);
           ctx.drawImage(img, 0, 0, cw, ch);
-          resolve(canvas.toDataURL("image/jpeg", 0.86));
+          resolve(canvas.toDataURL("image/jpeg", 0.90));
         };
         img.onerror = function () {
           URL.revokeObjectURL(url);
@@ -1461,37 +1574,35 @@
 
     function submitPhotosToAI(imagesArr) {
       if (!imagesArr || !imagesArr.length || parseState.busy) return;
-      var hasCfg = (parseState.aiConfig && parseState.aiConfig.configured) || aiKeyInp.value.trim();
-      if (!hasCfg) {
-        aiCfgPanel.hidden = false;
-        aiKeyInp.focus();
-        GS.toast("请先填写你的 DeepSeek API Key");
-        return;
-      }
-      parseState.busy = true;
-      var done = GS.busy(pickPhotosBtn, "AI 识图中…");
-      docStatusEl.textContent = "正在调用 DeepSeek 识别 " + imagesArr.length + " 张试卷/答案照片中的题型、小题分值与参考答案…";
+      Promise.resolve(parseState.aiConfig ? parseState.aiConfig : aiCfgPromise).then(function (cfg) {
+        if (!cfg || !cfg.configured) {
+          GS.toast("请先配置视觉 AI Key");
+          openAiConfigModal(function (savedCfg) {
+            refreshAiConfigBadge(savedCfg);
+            if (savedCfg && savedCfg.configured) submitPhotosToAI(imagesArr);
+          });
+          return;
+        }
+        parseState.busy = true;
+        var done = GS.busy(pickUnifiedBtn, "AI 识图中…");
+        docStatusEl.textContent = "正在调用视觉 AI 识别 " + imagesArr.length + " 张试卷/答案照片中的题型、小题分值与参考答案…";
 
-      var payload = { images: imagesArr };
-      if (aiKeyInp.value.trim()) payload.apiKey = aiKeyInp.value.trim();
-      if (aiBaseInp.value.trim()) payload.baseUrl = aiBaseInp.value.trim();
-      if (aiModelInp.value.trim()) payload.model = aiModelInp.value.trim();
-
-      GS.api("POST", "/api/exam/admin/parse-photos", payload).then(function (r) {
-        parseState.parsed = r.parsed;
-        parseState.structMode = "single";
-        parseState.splitSub = false;
-        docStatusEl.textContent = "AI 识卷完成：识别到 " + r.parsed.sections.length + " 种题型、共 " + r.parsed.stats.totalQuestions + " 题（总分 " + r.parsed.fullScore + " 分）。请核对下方题目并保存。";
-        applyParsedToForm(true);
-        renderDocResult();
-        GS.toast("已从照片识别并填入 " + r.parsed.stats.totalQuestions + " 道题目");
-      }).catch(function (err) {
-        docStatusEl.textContent = "AI 识卷失败：" + ((err && err.message) || "请检查 API Key 与网络");
-        if (/API Key/i.test(String(err && err.message || ""))) aiCfgPanel.hidden = false;
-        fail(err);
-      }).finally(function () {
-        parseState.busy = false;
-        done();
+        GS.api("POST", "/api/exam/admin/parse-photos", { images: imagesArr }).then(function (r) {
+          parseState.parsed = r.parsed;
+          parseState.structMode = "single";
+          parseState.splitSub = false;
+          docStatusEl.textContent = "AI 识卷完成：识别到 " + r.parsed.sections.length + " 种题型、共 " + r.parsed.stats.totalQuestions + " 题（总分 " + r.parsed.fullScore + " 分）。请核对下方题目并保存。";
+          applyParsedToForm(true);
+          renderDocResult();
+          GS.toast("已从照片识别并填入 " + r.parsed.stats.totalQuestions + " 道题目");
+        }).catch(function (err) {
+          docStatusEl.textContent = "AI 识卷失败：" + ((err && err.message) || "请检查 API Key 与网络");
+          if (/API Key/i.test(String(err && err.message || ""))) openAiConfigModal(refreshAiConfigBadge);
+          fail(err);
+        }).finally(function () {
+          parseState.busy = false;
+          done();
+        });
       });
     }
 
@@ -1501,14 +1612,14 @@
       });
       if (!files.length) return GS.toast("请选择有效的试卷图片（JPEG / PNG / WebP）");
       if (files.length > 16) return GS.toast("单次最多选择 16 张照片");
-      docStatusEl.textContent = "正在压缩预处理 " + files.length + " 张试卷照片…";
+      docStatusEl.textContent = "正在预处理 " + files.length + " 张试卷照片…";
       Promise.all(files.map(compressImageFileToDataUrl)).then(function (dataUrls) {
         submitPhotosToAI(dataUrls.map(function (d, i) { return { pageNo: i + 1, imageData: d }; }));
       }).catch(function (err) {
         docStatusEl.textContent = "图片预处理失败：" + ((err && err.message) || "");
         fail(err);
       }).finally(function () {
-        photoAlbumInput.value = "";
+        unifiedInput.value = "";
       });
     }
 
@@ -1589,7 +1700,7 @@
       if (!file || parseState.busy) return;
       if (file.size > 12 * 1024 * 1024) return GS.toast("文档大小不能超过 12MB");
       parseState.busy = true;
-      var done = GS.busy(pickDocBtn, "识别中…");
+      var done = GS.busy(pickUnifiedBtn, "识别中…");
       docStatusEl.textContent = "正在解析「" + file.name + "」的题型结构与参考答案…";
 
       var reader = new FileReader();
@@ -1612,7 +1723,7 @@
         }).finally(function () {
           parseState.busy = false;
           done();
-          docInput.value = "";
+          unifiedInput.value = "";
         });
       };
       reader.onerror = function () {
@@ -1624,22 +1735,25 @@
       reader.readAsDataURL(file);
     }
 
-    docInput.addEventListener("change", function () {
-      if (docInput.files && docInput.files[0]) uploadDocFile(docInput.files[0]);
-    });
-    photoAlbumInput.addEventListener("change", function () {
-      if (photoAlbumInput.files && photoAlbumInput.files.length) handlePhotoFiles(photoAlbumInput.files);
+    function handleUnifiedFiles(fileList) {
+      var files = Array.prototype.slice.call(fileList || []);
+      if (!files.length) return;
+      var imgFiles = files.filter(function (f) {
+        return f && (/^image\//.test(f.type) || /\.(?:jpe?g|png|webp|heic|bmp)$/i.test(f.name || ""));
+      });
+      if (imgFiles.length) handlePhotoFiles(imgFiles);
+      else uploadDocFile(files[0]);
+    }
+
+    unifiedInput.addEventListener("change", function () {
+      if (unifiedInput.files && unifiedInput.files.length) handleUnifiedFiles(unifiedInput.files);
     });
     docBox.addEventListener("dragover", function (e) { e.preventDefault(); docBox.classList.add("is-drag"); });
     docBox.addEventListener("dragleave", function () { docBox.classList.remove("is-drag"); });
     docBox.addEventListener("drop", function (e) {
       e.preventDefault();
       docBox.classList.remove("is-drag");
-      var files = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []);
-      if (!files.length) return;
-      var imgFiles = files.filter(function (f) { return /^image\//.test(f.type) || /\.(?:jpe?g|png|webp)$/i.test(f.name || ""); });
-      if (imgFiles.length) handlePhotoFiles(imgFiles);
-      else uploadDocFile(files[0]);
+      handleUnifiedFiles(e.dataTransfer && e.dataTransfer.files);
     });
 
     function renderSubjects() {
@@ -1826,11 +1940,11 @@
     dlg.showModal();
   }
 
-  /* ---------- 7B. 考务：成绩录入与拍图扫描 ---------- */
+  /* ---------- 7B. 考务：统一阅卷中心 ---------- */
   function renderAdminScoring(host) {
     host.textContent = "";
     if (!state.exams.length) {
-      host.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, icon("pencil"), el("h3", { text: "请先在「考试管理」创建一场考试" }))));
+      host.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, icon("pencil"), el("h3", { text: "请先在「考试与题库」创建一场考试" }))));
       return;
     }
     if (!state.selectedExamId || !state.exams.some(function (x) { return x.id === state.selectedExamId; })) {
@@ -1839,28 +1953,87 @@
 
     var exSel = el("select", { class: "exam-select" },
       state.exams.map(function (e) { return el("option", { value: e.id, selected: e.id === state.selectedExamId, text: e.title + (e.status === "draft" ? "（草稿）" : "") }); }));
+    var subSel = el("select", { style: "max-width:13rem" });
     var batchMode = false;
-    var modeBtn = el("button", { type: "button", class: "btn btn-sm", text: "切换到：全员批量录分表" });
+    var scanModeBtn = el("button", { type: "button", class: "is-active", text: "📷 智能扫卷与批改" });
+    var batchModeBtn = el("button", { type: "button", text: "📊 表格批量录分" });
+    var segWrap = el("div", { class: "exam-seg", style: "min-width:16.5rem" }, scanModeBtn, batchModeBtn);
+    var aiCfgBtn = el("button", { type: "button", class: "btn btn-sm", text: "🔑 AI 配置", onclick: function () { openAiConfigModal(); } });
     var workHost = el("div", { style: "display:grid;gap:1rem" });
-    host.append(el("div", { class: "exam-bar" }, el("div", { class: "exam-bar-left" }, exSel, modeBtn)), workHost);
+
+    host.append(
+      el("div", { class: "exam-bar" },
+        el("div", { class: "exam-bar-left" }, exSel, subSel),
+        el("div", { class: "exam-bar-right" }, segWrap, aiCfgBtn),
+      ),
+      workHost,
+    );
 
     var usersCache = [];
+    var overviewByUser = new Map();
     var lastDetected = {};
-    GS.api("GET", "/api/exam/admin/users").then(function (d) {
-      usersCache = d.users;
+
+    function currentExam() {
+      return state.exams.find(function (e) { return e.id === state.selectedExamId; }) || state.exams[0];
+    }
+
+    function syncSubOptions(exam) {
+      subSel.replaceChildren.apply(subSel, (exam && exam.subjects ? exam.subjects : []).map(function (s) {
+        return el("option", { value: s.id, text: s.name + "（满分 " + s.fullScore + "）" });
+      }));
+      if (exam && exam.subjects && exam.subjects.length) {
+        if (state.scoringSubId && exam.subjects.some(function (s) { return s.id === state.scoringSubId; })) {
+          subSel.value = String(state.scoringSubId);
+        } else {
+          subSel.value = String(exam.subjects[0].id);
+          state.scoringSubId = exam.subjects[0].id;
+        }
+      }
+      subSel.hidden = batchMode;
+    }
+
+    function loadOverview(examId) {
+      return GS.api("GET", "/api/exam/admin/exams/" + examId + "/overview").then(function (ov) {
+        overviewByUser = new Map((ov.ranking || []).map(function (r) { return [r.userId, r]; }));
+      }).catch(function () {
+        overviewByUser = new Map();
+      });
+    }
+
+    syncSubOptions(currentExam());
+    Promise.all([
+      GS.api("GET", "/api/exam/admin/users"),
+      loadOverview(state.selectedExamId),
+    ]).then(function (res) {
+      usersCache = res[0].users || [];
       draw();
     }).catch(fail);
 
-    exSel.addEventListener("change", function () { state.selectedExamId = Number(exSel.value); draw(); });
-    modeBtn.addEventListener("click", function () {
-      batchMode = !batchMode;
-      modeBtn.textContent = batchMode ? "切换到：单人精录与扫卷" : "切换到：全员批量录分表";
+    exSel.addEventListener("change", function () {
+      state.selectedExamId = Number(exSel.value);
+      syncSubOptions(currentExam());
+      loadOverview(state.selectedExamId).then(draw);
+    });
+    scanModeBtn.addEventListener("click", function () {
+      if (!batchMode) return;
+      batchMode = false;
+      scanModeBtn.classList.add("is-active");
+      batchModeBtn.classList.remove("is-active");
+      subSel.hidden = false;
+      draw();
+    });
+    batchModeBtn.addEventListener("click", function () {
+      if (batchMode) return;
+      batchMode = true;
+      batchModeBtn.classList.add("is-active");
+      scanModeBtn.classList.remove("is-active");
+      subSel.hidden = true;
       draw();
     });
 
     function draw() {
       workHost.textContent = "";
-      var exam = state.exams.find(function (e) { return e.id === state.selectedExamId; });
+      var exam = currentExam();
       if (!exam) return;
       if (!usersCache.length) {
         workHost.append(el("div", { class: "box" }, el("div", { class: "blankslate" }, el("h3", { text: "暂无员工账号" }), el("p", { text: "请先在「成员与考号」分配考号或新增成员。" }))));
@@ -1871,30 +2044,126 @@
     }
 
     function renderSingleAndScan(exam) {
-      var noInp = el("input", { type: "text", maxlength: "4", placeholder: "输入4位考号如 0413", style: "width:11rem" });
-      var userSel = el("select", { style: "max-width:16rem" },
-        usersCache.map(function (u) {
-          return el("option", { value: u.id, text: (u.examNo ? "[" + u.examNo + "] " : "[无考号] ") + (u.displayName || u.username) + (u.department ? " · " + u.department : "") });
-        }));
-      var subSel = el("select", { style: "max-width:12rem" },
-        exam.subjects.map(function (s) { return el("option", { value: s.id, text: s.name + "（满分 " + s.fullScore + "）" }); }));
+      syncSubOptions(exam);
+      var activeSubId = Number(subSel.value || (exam.subjects[0] && exam.subjects[0].id) || 0);
+      state.scoringSubId = activeSubId;
 
-      var area = el("div");
-      workHost.append(
-        el("div", { class: "exam-card" },
-          el("div", { class: "exam-bar", style: "margin-bottom:0" },
-            el("div", { class: "exam-bar-left" },
-              el("span", { class: "small muted", text: "考号直查：" }),
-              noInp,
-              el("button", { type: "button", class: "btn btn-sm", text: "定位", onclick: lookupNo }),
-              el("span", { class: "small muted", text: "或选成员：" }),
-              userSel,
-              subSel,
-            ),
+      var scanTargetSel = el("select", { style: "max-width:17rem" });
+      function fillScanTargets() {
+        var prev = scanTargetSel.value;
+        scanTargetSel.replaceChildren(
+          el("option", { value: "", text: "✨ 自动识别考生（推荐）" }),
+        );
+        usersCache.forEach(function (u) {
+          scanTargetSel.appendChild(el("option", {
+            value: String(u.id),
+            text: (u.examNo ? "[" + u.examNo + "] " : "[无考号] ") + (u.displayName || u.username) + (u.department ? " · " + u.department : ""),
+          }));
+        });
+        scanTargetSel.value = prev || "";
+      }
+      fillScanTargets();
+
+      var smartFileInput = el("input", {
+        type: "file",
+        accept: "image/jpeg,image/png,image/webp,image/*",
+        multiple: true,
+        hidden: true,
+      });
+      var forcedUploadUid = null;
+
+      var smartPickBtn = el("button", {
+        type: "button",
+        class: "btn btn-primary",
+        onclick: function () {
+          forcedUploadUid = scanTargetSel.value ? Number(scanTargetSel.value) : null;
+          smartFileInput.click();
+        },
+      }, icon("phone"), "📷 拍照 / 传答题卡（AI 自动认人批改）");
+
+      var cropScanBtn = el("button", {
+        type: "button",
+        class: "btn",
+        onclick: function () {
+          if (!window.ExamScanner) return GS.toast("扫描组件未加载");
+          var uid = scanTargetSel.value ? Number(scanTargetSel.value) : null;
+          ExamScanner.open({
+            isAdmin: true,
+            mode: "extract",
+            onExtract: function (pagesOut) {
+              runSmartScanImages(pagesOut, cropScanBtn, uid);
+            },
+          });
+        },
+      }, icon("search"), "✂️ 切边扫描仪");
+
+      var scanHub = el("div", { class: "scan-hub-card" },
+        smartFileInput,
+        el("div", { class: "exam-bar", style: "margin-bottom:0" },
+          el("div", { class: "exam-bar-left" },
+            el("strong", { text: "智能上传答题卡" }),
+            el("span", { class: "small muted", text: "直接选择或拖入照片：AI 自动认人、红笔打勾/划叉、计算客观+主观得分" }),
           ),
         ),
-        area,
+        el("div", { class: "row" }, scanTargetSel, smartPickBtn, cropScanBtn),
       );
+
+      var noInp = el("input", { type: "text", maxlength: "4", placeholder: "4位考号如 0413", style: "width:9.5rem" });
+      var userSel = el("select", { style: "max-width:20rem" });
+      function fillUserOptions() {
+        var sid = Number(subSel.value);
+        userSel.replaceChildren.apply(userSel, usersCache.map(function (u) {
+          var rowRec = overviewByUser.get(u.id);
+          var ss = rowRec && rowRec.subjectScores ? rowRec.subjectScores[sid] : null;
+          var badgeTxt = ss
+            ? (ss.absent ? "[缺考]" : "[✓ " + ss.score + "分]")
+            : "[未录]";
+          return el("option", {
+            value: String(u.id),
+            text: (u.examNo ? "[" + u.examNo + "] " : "[无考号] ") + (u.displayName || u.username) + " · " + badgeTxt,
+          });
+        }));
+        if (state.scoringUserId && usersCache.some(function (u) { return u.id === state.scoringUserId; })) {
+          userSel.value = String(state.scoringUserId);
+        } else if (usersCache[0]) {
+          userSel.value = String(usersCache[0].id);
+          state.scoringUserId = usersCache[0].id;
+        }
+      }
+      fillUserOptions();
+
+      function stepUser(delta) {
+        if (!usersCache.length) return;
+        var cur = Number(userSel.value);
+        var idx = usersCache.findIndex(function (u) { return u.id === cur; });
+        if (idx < 0) idx = 0;
+        var next = (idx + delta + usersCache.length) % usersCache.length;
+        userSel.value = String(usersCache[next].id);
+        state.scoringUserId = usersCache[next].id;
+        loadStudentSubject();
+      }
+
+      var studentBar = el("div", { class: "exam-card grader-student-bar" },
+        el("div", { class: "exam-bar-left" },
+          el("span", { class: "small muted", text: "考号直查：" }),
+          noInp,
+          el("button", { type: "button", class: "btn btn-sm", text: "定位", onclick: lookupNo }),
+          el("span", { class: "small muted", text: "成员：" }),
+          userSel,
+        ),
+        el("div", { class: "exam-bar-right" },
+          el("button", { type: "button", class: "btn btn-sm", text: "← 上一位", onclick: function () { stepUser(-1); } }),
+          el("button", { type: "button", class: "btn btn-sm", text: "下一位 →", onclick: function () { stepUser(1); } }),
+        ),
+      );
+
+      var area = el("div");
+      workHost.append(scanHub, studentBar, area);
+
+      var viewerZoom = 1;
+      var viewerRot = 0;
+      var viewerShowAnn = true;
+      var viewerPageIdx = 0;
 
       function lookupNo() {
         var v = noInp.value.trim();
@@ -1902,15 +2171,117 @@
         var hit = usersCache.find(function (u) { return u.examNo === v; });
         if (!hit) return GS.toast("未找到考号 " + v + " 对应的成员");
         userSel.value = String(hit.id);
+        state.scoringUserId = hit.id;
+        viewerPageIdx = 0;
+        viewerZoom = 1;
+        viewerRot = 0;
         loadStudentSubject();
       }
       noInp.addEventListener("input", function () { if (/^\d{4}$/.test(noInp.value.trim())) lookupNo(); });
-      userSel.addEventListener("change", loadStudentSubject);
-      subSel.addEventListener("change", loadStudentSubject);
+      userSel.addEventListener("change", function () {
+        state.scoringUserId = Number(userSel.value);
+        viewerPageIdx = 0;
+        viewerZoom = 1;
+        viewerRot = 0;
+        loadStudentSubject();
+      });
+
+      var onSubChange = function () {
+        state.scoringSubId = Number(subSel.value);
+        fillUserOptions();
+        viewerPageIdx = 0;
+        loadStudentSubject();
+      };
+      subSel.onchange = onSubChange;
+
+      function pickPhotoForUid(uid) {
+        forcedUploadUid = uid;
+        smartFileInput.click();
+      }
+
+      function runSmartScanImages(images, btn, explicitUid) {
+        if (!images || !images.length) return;
+        if (!window.ExamScanner || typeof window.ExamScanner.runSmartScanWithConfirm !== "function") {
+          return GS.toast("扫描组件未就绪");
+        }
+        var sid = Number(subSel.value);
+        var done = GS.busy(btn || smartPickBtn, "AI 识别批改中…");
+        ExamScanner.runSmartScanWithConfirm({
+          examId: exam.id,
+          subjectId: sid,
+          userId: explicitUid || null,
+          images: images,
+        }).then(function (r) {
+          if (!r || !r.confirmed) {
+            GS.toast("已取消本次成绩入库");
+            return;
+          }
+          var resolvedUid = (r.targetUser && r.targetUser.id) ? r.targetUser.id : explicitUid;
+          if (resolvedUid) {
+            state.scoringUserId = resolvedUid;
+            if (r.grading && r.grading.detectedStudent) {
+              lastDetected[resolvedUid + ":" + sid] = r.grading.detectedStudent;
+            }
+          }
+          var who = r.targetUser ? (r.targetUser.displayName || r.targetUser.username) : "考生";
+          var g = r.grading;
+          GS.toast(g ? ("AI 批改已保存「" + who + "」：" + g.score + " / " + g.fullScore + " 分") : ("已上传至「" + who + "」"));
+          viewerPageIdx = 0;
+          Promise.all([
+            loadOverview(exam.id),
+            GS.api("GET", "/api/exam/me"),
+            GS.api("GET", "/api/exam/list"),
+          ]).then(function (all) {
+            state.examMe = all[1];
+            state.exams = all[2].exams;
+            renderIdCard();
+            fillUserOptions();
+            loadStudentSubject();
+          }).catch(fail);
+        }).catch(function (err) {
+          if (err && /API Key/i.test(String(err.message || ""))) {
+            openAiConfigModal();
+          }
+          fail(err);
+        }).finally(done);
+      }
+
+      function handleSmartScanFiles(fileList, explicitUid) {
+        var files = Array.prototype.slice.call(fileList || []).filter(function (f) {
+          return f && (/^image\//.test(f.type) || /\.(?:jpe?g|png|webp|heic|bmp)$/i.test(f.name || ""));
+        });
+        if (!files.length) return GS.toast("请选择有效的答题卡图片（JPEG / PNG / WebP）");
+        if (files.length > 8) return GS.toast("单次最多同时上传 8 页");
+        Promise.all(files.map(function (f) {
+          return window.ExamScanner.compressCleanPhoto(f);
+        })).then(function (pages) {
+          runSmartScanImages(pages, smartPickBtn, explicitUid);
+        }).catch(fail).finally(function () {
+          smartFileInput.value = "";
+        });
+      }
+
+      smartFileInput.addEventListener("change", function () {
+        var uid = forcedUploadUid;
+        forcedUploadUid = null;
+        if (smartFileInput.files && smartFileInput.files.length) handleSmartScanFiles(smartFileInput.files, uid);
+      });
+      scanHub.addEventListener("dragover", function (e) { e.preventDefault(); scanHub.classList.add("is-drag"); });
+      scanHub.addEventListener("dragleave", function () { scanHub.classList.remove("is-drag"); });
+      scanHub.addEventListener("drop", function (e) {
+        e.preventDefault();
+        scanHub.classList.remove("is-drag");
+        var uid = scanTargetSel.value ? Number(scanTargetSel.value) : null;
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+          handleSmartScanFiles(e.dataTransfer.files, uid);
+        }
+      });
 
       function loadStudentSubject() {
         var uid = Number(userSel.value);
         var sid = Number(subSel.value);
+        state.scoringUserId = uid;
+        state.scoringSubId = sid;
         var student = usersCache.find(function (u) { return u.id === uid; });
         if (!student) return;
         if (student.examNo) noInp.value = student.examNo;
@@ -1920,14 +2291,40 @@
           var sub = rep.subjects.find(function (s) { return s.id === sid; }) || rep.subjects[0];
           if (!sub) return;
           var mine = sub.mine || { score: "", absent: false, items: [], teacherComment: "" };
+          var qByNo = new Map((sub.questions || []).map(function (q) { return [Number(q.no), q]; }));
 
           var itemsEdited = !!(mine.items && mine.items.length);
           var itemDrafts = (mine.items && mine.items.length)
             ? mine.items.map(function (x) {
-              return { no: x.no, title: x.title, tag: x.tag, full: x.full, got: x.got, wrong: x.wrong, section: x.section, qtype: x.qtype, studentAnswer: x.studentAnswer || "", aiComment: x.aiComment || "" };
+              var qMeta = qByNo.get(Number(x.no));
+              return {
+                no: x.no,
+                title: x.title || (qMeta ? qMeta.title : ""),
+                tag: x.tag || (qMeta ? qMeta.tag : ""),
+                full: x.full,
+                got: x.got,
+                wrong: x.wrong,
+                section: x.section || (qMeta ? qMeta.section : ""),
+                qtype: x.qtype || (qMeta ? qMeta.qtype : ""),
+                answer: qMeta ? (qMeta.answer || "") : "",
+                studentAnswer: x.studentAnswer || "",
+                aiComment: x.aiComment || "",
+              };
             })
             : (sub.questions || []).map(function (q) {
-              return { no: q.no, title: q.title, tag: q.tag, full: q.full, got: q.full, wrong: false, section: q.section, qtype: q.qtype, studentAnswer: "", aiComment: "" };
+              return {
+                no: q.no,
+                title: q.title,
+                tag: q.tag,
+                full: q.full,
+                got: q.full,
+                wrong: false,
+                section: q.section,
+                qtype: q.qtype,
+                answer: q.answer || "",
+                studentAnswer: "",
+                aiComment: "",
+              };
             });
 
           var scoreInp = el("input", { type: "number", step: "0.5", min: "0", max: sub.fullScore, value: mine.score !== "" ? String(mine.score) : "" });
@@ -1936,48 +2333,195 @@
           var noteTa = el("textarea", { rows: "2", placeholder: "教师评语（可选）" });
           noteTa.value = mine.teacherComment || "";
 
-          var itemsWrap = el("div", { class: "item-score-list" });
           function recalcSum() {
+            itemsEdited = true;
             if (!autoSumChk.checked || !itemDrafts.length) return;
             var total = itemDrafts.reduce(function (s, it) { return s + (Number(it.got) || 0); }, 0);
             scoreInp.value = String(Math.round(total * 10) / 10);
           }
-          function drawItems() {
-            itemsWrap.textContent = "";
-            itemDrafts.forEach(function (it) {
-              var gInp = el("input", {
-                type: "number", step: "0.5", min: "0", max: it.full, value: String(it.got),
-                oninput: function () {
-                  itemsEdited = true;
-                  it.got = Math.max(0, Math.min(it.full, Number(this.value) || 0));
-                  it.wrong = it.got < it.full;
-                  recalcSum();
-                },
-              });
-              var descParts = [(it.title || it.tag || "小题") + "（" + (it.tag || "综合") + "）"];
-              if (it.studentAnswer) descParts.push("作答：" + it.studentAnswer);
-              if (it.aiComment) descParts.push("AI：" + it.aiComment);
-              itemsWrap.append(el("div", { class: "item-score-row" },
-                el("strong", { text: "#" + it.no }),
-                el("span", { text: descParts.join(" · ") }),
-                gInp,
-                el("span", { class: "muted", text: "/ " + it.full + " 分" }),
-              ));
-            });
-          }
-          drawItems();
+          autoSumChk.addEventListener("change", function () { if (autoSumChk.checked) recalcSum(); });
+
+          var breakdownHost = el("div", { style: "display:grid;gap:.65rem;margin-top:.75rem" });
+          renderGradingBreakdown(breakdownHost, itemDrafts, {
+            editable: true,
+            emptyText: "暂未配置小题模板，可直接输入总分或先在「考试与题库」导入试题结构。",
+            onChange: recalcSum,
+          });
           if (itemDrafts.length && mine.score === "" && itemsEdited) recalcSum();
 
-          function refreshSilentAndStay() {
-            Promise.all([GS.api("GET", "/api/exam/me"), GS.api("GET", "/api/exam/list")]).then(function (res) {
-              state.examMe = res[0];
-              state.exams = res[1].exams;
+          function refreshOverviewAndStay() {
+            Promise.all([
+              loadOverview(exam.id),
+              GS.api("GET", "/api/exam/me"),
+              GS.api("GET", "/api/exam/list"),
+            ]).then(function (res) {
+              state.examMe = res[1];
+              state.exams = res[2].exams;
               renderIdCard();
+              fillUserOptions();
               loadStudentSubject();
             }).catch(fail);
           }
 
-          var saveScoreBtn = el("button", { type: "button", class: "btn btn-primary", text: "提交本科学业成绩" });
+          /* 左侧：高清答题卡原卷浏览与批改控制 */
+          var pages = sub.papers || [];
+          var leftCol;
+          if (!pages.length) {
+            leftCol = el("div", { class: "exam-card" },
+              el("div", { class: "exam-card-head" },
+                el("h3", { text: "高清答题卡原卷（0 页）" }),
+                el("button", { type: "button", class: "btn btn-sm btn-primary", text: "📷 为当前成员补拍", onclick: function () { pickPhotoForUid(student.id); } }),
+              ),
+              el("div", { class: "blankslate", style: "padding:2rem 1rem" },
+                icon("window"),
+                el("h3", { text: "该成员此科暂无扫描原卷" }),
+                el("p", { text: "可直接将照片拖入上方「智能上传答题卡」，或点击右上角为当前成员单独上传并 AI 批改。" }),
+              ),
+            );
+          } else {
+            if (viewerPageIdx >= pages.length) viewerPageIdx = 0;
+            var curPage = pages[viewerPageIdx];
+
+            var thumbs = el("div", { class: "paper-thumbs" },
+              pages.map(function (p, i) {
+                return el("button", {
+                  type: "button",
+                  class: "paper-thumb" + (i === viewerPageIdx ? " is-active" : ""),
+                  onclick: function () { viewerPageIdx = i; viewerZoom = 1; viewerRot = 0; loadStudentSubject(); },
+                }, el("img", { src: p.url, alt: "第 " + p.pageNo + " 页" }), el("span", { text: "第 " + p.pageNo + " 页" }));
+              }));
+
+            var img = el("img", { src: curPage.url, alt: sub.name + " 第 " + curPage.pageNo + " 页" });
+            var svg = svgEl("svg", { class: "paper-ann-svg" });
+            if (viewerShowAnn) syncSvgAspectRatio(img, svg, curPage.annotations, false, null, curPage);
+            else svg.style.display = "none";
+
+            var wrap = el("div", { class: "paper-canvas-wrap" }, img, svg);
+            function applyTransform() {
+              wrap.style.transform = "scale(" + viewerZoom + ") rotate(" + viewerRot + "deg)";
+            }
+            applyTransform();
+
+            var regradeBtn = el("button", {
+              type: "button",
+              class: "btn btn-sm",
+              text: "🤖 重批",
+              onclick: function () {
+                var done = GS.busy(regradeBtn, "重批中…");
+                ExamScanner.runAiGradeWithConfirm({
+                  examId: exam.id,
+                  subjectId: sub.id,
+                  userId: student.id,
+                  applyAnnotations: true,
+                  autoSave: true,
+                }).then(function (r) {
+                  if (!r || !r.confirmed) {
+                    GS.toast("已取消本次成绩入库");
+                    return;
+                  }
+                  var targetId = r.targetUser && r.targetUser.id ? r.targetUser.id : student.id;
+                  if (targetId !== student.id) state.scoringUserId = targetId;
+                  if (r.grading && r.grading.detectedStudent) {
+                    lastDetected[targetId + ":" + sub.id] = r.grading.detectedStudent;
+                  }
+                  GS.toast("AI 重批完成：" + r.grading.score + " / " + r.grading.fullScore + " 分");
+                  refreshOverviewAndStay();
+                }).catch(function (err) {
+                  if (err && /API Key/i.test(String(err.message || ""))) openAiConfigModal();
+                  fail(err);
+                }).finally(done);
+              },
+            });
+
+            var clearBtn = pages.length > 1 ? el("button", {
+              type: "button",
+              class: "btn btn-sm btn-danger",
+              text: "清空",
+              onclick: function () {
+                GS.dialog({
+                  title: "清空该生「" + sub.name + "」全部原卷",
+                  danger: true,
+                  confirm: "清空原卷",
+                  text: "将永久删除该生此科目的全部 " + pages.length + " 页扫描件。",
+                }).then(function (ok) {
+                  if (!ok) return;
+                  return GS.api("DELETE", "/api/exam/admin/papers?examId=" + exam.id + "&subjectId=" + sub.id + "&userId=" + student.id).then(function (r) {
+                    GS.toast("已清空 " + (r.deleted || pages.length) + " 页原卷");
+                    viewerPageIdx = 0;
+                    refreshOverviewAndStay();
+                  });
+                }).catch(fail);
+              },
+            }) : null;
+
+            var viewerControls = el("div", { class: "exam-bar", style: "margin-bottom:.35rem" },
+              el("div", { class: "exam-bar-left" },
+                el("button", { type: "button", class: "btn btn-sm", text: "放大 +", onclick: function () { viewerZoom = Math.min(3, Math.round((viewerZoom + 0.25) * 100) / 100); applyTransform(); } }),
+                el("button", { type: "button", class: "btn btn-sm", text: "缩小 -", onclick: function () { viewerZoom = Math.max(0.5, Math.round((viewerZoom - 0.25) * 100) / 100); applyTransform(); } }),
+                el("button", { type: "button", class: "btn btn-sm", text: "重置", onclick: function () { viewerZoom = 1; viewerRot = 0; applyTransform(); } }),
+                el("button", { type: "button", class: "btn btn-sm", text: "旋转 90°", onclick: function () { viewerRot = (viewerRot + 90) % 360; applyTransform(); } }),
+                el("button", {
+                  type: "button",
+                  class: "btn btn-sm " + (viewerShowAnn ? "is-on" : ""),
+                  text: viewerShowAnn ? "隐藏批注" : "显示批注",
+                  onclick: function () { viewerShowAnn = !viewerShowAnn; loadStudentSubject(); },
+                }),
+                el("button", { type: "button", class: "btn btn-sm", text: "红笔手批", onclick: function () { openAnnotationDialog(curPage, refreshOverviewAndStay); } }),
+                regradeBtn,
+                el("button", {
+                  type: "button",
+                  class: "btn btn-sm btn-danger",
+                  text: "删本页",
+                  onclick: function () {
+                    GS.dialog({
+                      title: "删除第 " + curPage.pageNo + " 页原卷",
+                      danger: true,
+                      confirm: "删除",
+                      text: "确认永久删除该页答题卡扫描件？",
+                    }).then(function (ok) {
+                      if (!ok) return;
+                      return GS.api("DELETE", "/api/exam/admin/papers/" + curPage.id).then(function () {
+                        GS.toast("已删除第 " + curPage.pageNo + " 页");
+                        viewerPageIdx = Math.max(0, viewerPageIdx - 1);
+                        refreshOverviewAndStay();
+                      });
+                    }).catch(fail);
+                  },
+                }),
+                clearBtn,
+                el("button", { type: "button", class: "btn btn-sm", text: "+ 补页", onclick: function () { pickPhotoForUid(student.id); } }),
+              ),
+            );
+
+            leftCol = el("div", { class: "exam-card" },
+              el("div", { class: "exam-card-head" },
+                el("h3", { text: "高清答题卡原卷（" + pages.length + " 页 · 第 " + curPage.pageNo + " 页）" }),
+                el("span", { class: "muted small", text: (curPage.width || "?") + "×" + (curPage.height || "?") + " · 批注 " + (curPage.annotations?.length || 0) + " 处" }),
+              ),
+              thumbs,
+              viewerControls,
+              el("div", { class: "paper-stage" }, wrap),
+            );
+          }
+
+          /* 右侧：得分卡与复核 */
+          var key = student.id + ":" + sub.id;
+          var detectedBannerHost = el("div");
+          var det = lastDetected[key];
+          if (det && (det.examNo || det.name || det.department)) {
+            var mismatch = !!(det.examNo && student.examNo && det.examNo !== student.examNo);
+            detectedBannerHost.append(el("div", {
+              class: "flash " + (mismatch ? "flash-error" : "flash-info"),
+              style: "margin-bottom:.7rem",
+            }, icon(mismatch ? "alert" : "info"), el("div", {
+              text: (mismatch ? "⚠️ 卷面考号与当前选中成员不一致！" : "")
+                + "AI 识别卷面信息：考号 " + (det.examNo || "—")
+                + " · 姓名 " + (det.name || "—")
+                + (det.department ? " · 部门 " + det.department : ""),
+            })));
+          }
+
+          var saveScoreBtn = el("button", { type: "button", class: "btn btn-primary", text: "保存成绩" });
           saveScoreBtn.addEventListener("click", function () {
             var done = GS.busy(saveScoreBtn, "保存中…");
             GS.api("PUT", "/api/exam/admin/exams/" + exam.id + "/scores", {
@@ -1990,12 +2534,12 @@
               teacherComment: noteTa.value,
             }).then(function () {
               GS.toast("已保存 " + (student.examNo || student.username) + " 的「" + sub.name + "」成绩");
-              refreshSilentAndStay();
-            }).catch(function (err) { done(); fail(err); });
+              refreshOverviewAndStay();
+            }).catch(fail).finally(done);
           });
 
           var delScoreBtn = sub.mine ? el("button", {
-            type: "button", class: "btn btn-sm btn-danger", text: "删除该生成绩",
+            type: "button", class: "btn btn-sm btn-danger", text: "删除成绩",
             onclick: function () {
               GS.dialog({
                 title: "删除「" + (student.displayName || student.username) + "」本场成绩",
@@ -2006,164 +2550,29 @@
                 if (!ok) return;
                 return GS.api("DELETE", "/api/exam/admin/exams/" + exam.id + "/scores/" + student.id).then(function () {
                   GS.toast("已删除该生成绩记录");
-                  refreshSilentAndStay();
+                  refreshOverviewAndStay();
                 });
               }).catch(fail);
             },
           }) : null;
-
-          var leftCol = el("div", { class: "exam-card" },
-            el("div", { class: "exam-card-head" },
-              el("h3", { text: (student.displayName || student.username) + " · " + sub.name }),
-              el("span", { class: "exam-no-pill", text: student.examNo ? "考号 " + student.examNo : "无考号" }),
-            ),
-            el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:.75rem;align-items:end" },
-              el("div", { class: "field" }, el("label", { text: "总分（满分 " + sub.fullScore + "）" }), scoreInp),
-              el("label", { class: "scanner-check", style: "padding-bottom:.45rem" }, absentChk, "标记缺考"),
-            ),
-            itemDrafts.length ? el("label", { class: "scanner-check", style: "margin-top:.6rem" }, autoSumChk, "按下方小题得分自动求和") : null,
-            itemDrafts.length ? itemsWrap : el("p", { class: "muted small", style: "margin-top:.6rem", text: "提示：在「考试管理」中配置小题模板后，失分小题会自动沉淀至成员错题本。" }),
-            el("div", { class: "field", style: "margin-top:.85rem" }, el("label", { text: "教师评语" }), noteTa),
-            el("div", { class: "form-actions" }, saveScoreBtn, delScoreBtn),
-          );
-
-          var nextNo = sub.papers.length ? sub.papers[sub.papers.length - 1].pageNo + 1 : 1;
-          var key = student.id + ":" + sub.id;
-          var detectedBannerHost = el("div");
-          function renderDetectedBanner() {
-            detectedBannerHost.textContent = "";
-            var det = lastDetected[key];
-            if (!det || (!det.examNo && !det.name && !det.department)) return;
-            var mismatch = !!(det.examNo && student.examNo && det.examNo !== student.examNo);
-            detectedBannerHost.append(el("div", {
-              class: "flash " + (mismatch ? "flash-error" : "flash-info"),
-              style: "margin-top:.75rem",
-            }, icon(mismatch ? "alert" : "info"), el("div", {
-              text: (mismatch ? "⚠️ 卷面考号与当前选中成员不一致！" : "")
-                + "AI 识别卷面信息：考号 " + (det.examNo || "—")
-                + " · 姓名 " + (det.name || "—")
-                + (det.department ? " · 部门 " + det.department : ""),
-            })));
-          }
-          renderDetectedBanner();
-
-          var scanBtn = el("button", {
-            type: "button", class: "btn btn-sm btn-primary",
-            onclick: function () {
-              ExamScanner.open({
-                isAdmin: true,
-                examId: exam.id,
-                subjectId: sub.id,
-                subject: sub,
-                examStatus: exam.status,
-                student: student,
-                initialScore: scoreInp.value,
-                initialComment: noteTa.value,
-                items: (itemsEdited || autoSumChk.checked) ? itemDrafts : undefined,
-                nextPageNo: nextNo,
-                onUploaded: function (_pages, _synced, aiGrading, confirmedUser) {
-                  var targetId = confirmedUser && confirmedUser.id ? confirmedUser.id : student.id;
-                  if (confirmedUser && confirmedUser.id !== student.id) {
-                    userSel.value = String(confirmedUser.id);
-                  }
-                  if (aiGrading && aiGrading.detectedStudent) {
-                    lastDetected[targetId + ":" + sub.id] = aiGrading.detectedStudent;
-                  }
-                  refreshSilentAndStay();
-                },
-              });
-            },
-          }, icon("phone"), "📷 拍答题卡 / 传原卷");
-
-          var aiGradeBtn = sub.papers.length ? el("button", {
-            type: "button",
-            class: "btn btn-sm",
-            text: "🤖 AI 自动批改",
-            onclick: function () {
-              var done = GS.busy(aiGradeBtn, "AI 阅卷中…");
-              ExamScanner.runAiGradeWithConfirm({
-                examId: exam.id,
-                subjectId: sub.id,
-                userId: student.id,
-                applyAnnotations: true,
-                autoSave: true,
-              }).then(function (r) {
-                if (!r || !r.confirmed) {
-                  GS.toast("已取消本次成绩入库");
-                  return;
-                }
-                var targetId = r.targetUser && r.targetUser.id ? r.targetUser.id : student.id;
-                if (r.targetUser && r.targetUser.id !== student.id) {
-                  userSel.value = String(r.targetUser.id);
-                }
-                if (r.grading && r.grading.detectedStudent) {
-                  lastDetected[targetId + ":" + sub.id] = r.grading.detectedStudent;
-                }
-                var who = r.targetUser ? (r.targetUser.displayName || r.targetUser.username) : (student.displayName || student.username);
-                GS.toast("AI 批改已保存至「" + who + "」：" + r.grading.score + " / " + r.grading.fullScore + " 分");
-                refreshSilentAndStay();
-              }).catch(fail).finally(done);
-            },
-          }) : null;
-
-          var clearPapersBtn = sub.papers.length ? el("button", {
-            type: "button",
-            class: "btn btn-sm btn-danger",
-            text: "清空全部原卷",
-            onclick: function () {
-              GS.dialog({
-                title: "清空该生「" + sub.name + "」全部原卷",
-                danger: true,
-                confirm: "清空原卷",
-                text: "将永久删除该生此科目的全部 " + sub.papers.length + " 页扫描件。",
-              }).then(function (ok) {
-                if (!ok) return;
-                return GS.api("DELETE", "/api/exam/admin/papers?examId=" + exam.id + "&subjectId=" + sub.id + "&userId=" + student.id).then(function (r) {
-                  GS.toast("已清空 " + (r.deleted || sub.papers.length) + " 页扫描原卷");
-                  refreshSilentAndStay();
-                });
-              }).catch(fail);
-            },
-          }) : null;
-
-          var papersList = el("div", { style: "display:grid;gap:.65rem;margin-top:.85rem" });
-          if (!sub.papers.length) {
-            papersList.append(el("p", { class: "muted small", text: "暂无答题卡扫描件。支持手机拍照或相册选图，自动透视矫正并支持 DeepSeek AI 自动批改手写答题卡。" }));
-          } else {
-            sub.papers.forEach(function (p) {
-              papersList.append(el("div", { class: "box-row", style: "padding:.6rem .75rem;border:1px solid var(--ui-border);border-radius:var(--ui-r)" },
-                el("img", { src: p.url, alt: "第 " + p.pageNo + " 页", style: "width:3.6rem;height:4.8rem;object-fit:cover;border-radius:4px;background:#111" }),
-                el("div", { class: "grow" },
-                  el("div", { class: "title", text: "第 " + p.pageNo + " 页" }),
-                  el("div", { class: "meta", text: (p.width || "?") + "×" + (p.height || "?") + " · 滤镜 " + p.filterMode + " · 批注 " + (p.annotations?.length || 0) + " 处" }),
-                ),
-                el("button", { type: "button", class: "btn btn-sm", text: "红笔批改", onclick: function () { openAnnotationDialog(p, loadStudentSubject); } }),
-                el("button", { type: "button", class: "btn btn-sm btn-danger", text: "删", onclick: function () {
-                  GS.dialog({
-                    title: "删除第 " + p.pageNo + " 页原卷",
-                    danger: true,
-                    confirm: "删除",
-                    text: "确认永久删除该页答题卡扫描件？",
-                  }).then(function (ok) {
-                    if (!ok) return;
-                    return GS.api("DELETE", "/api/exam/admin/papers/" + p.id).then(function () {
-                      GS.toast("已删除第 " + p.pageNo + " 页");
-                      refreshSilentAndStay();
-                    });
-                  }).catch(fail);
-                } }),
-              ));
-            });
-          }
 
           var rightCol = el("div", { class: "exam-card" },
-            el("div", { class: "exam-card-head" }, el("h3", { text: "答题卡扫描与 AI 批改（" + sub.papers.length + " 页）" })),
-            el("div", { class: "row" }, scanBtn, aiGradeBtn, clearPapersBtn),
+            el("div", { class: "exam-card-head" },
+              el("h3", { text: "得分卡与复核 · " + (student.displayName || student.username) }),
+              el("span", { class: "exam-no-pill", text: student.examNo ? "考号 " + student.examNo : "无考号" }),
+            ),
             detectedBannerHost,
-            papersList,
+            el("div", { style: "display:grid;grid-template-columns:1fr auto;gap:.75rem;align-items:end" },
+              el("div", { class: "field" }, el("label", { text: "总分（满分 " + sub.fullScore + "）" }), scoreInp),
+              el("label", { class: "scanner-check", style: "padding-bottom:.45rem" }, absentChk, "缺考"),
+            ),
+            itemDrafts.length ? el("label", { class: "scanner-check", style: "margin-top:.55rem" }, autoSumChk, "按下方小题得分自动求和") : null,
+            el("div", { class: "form-actions", style: "margin-top:.7rem" }, saveScoreBtn, delScoreBtn),
+            breakdownHost,
+            el("div", { class: "field", style: "margin-top:.85rem" }, el("label", { text: "教师评语" }), noteTa),
           );
 
-          area.append(el("div", { class: "score-entry-grid" }, leftCol, rightCol));
+          area.append(el("div", { class: "grader-split-grid" }, leftCol, rightCol));
         }).catch(fail);
       }
 

@@ -403,6 +403,117 @@
 }
 .item-score-row input[type="number"] { padding: .24rem .4rem; min-height: 1.7rem; }
 
+/* ---------- 统一阅卷中心 & Gradescope 双栏 ---------- */
+.scan-hub-card {
+  padding: .95rem 1.15rem;
+  border-radius: var(--pg-radius-lg);
+  background: var(--pg-bg-raised);
+  border: 1px dashed var(--pg-line-strong);
+  display: grid;
+  gap: .65rem;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.scan-hub-card.is-drag {
+  border-color: var(--pg-accent);
+  background: color-mix(in srgb, var(--pg-accent) 7%, var(--pg-bg-raised));
+}
+.grader-student-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .65rem;
+  flex-wrap: wrap;
+}
+.grader-split-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, .95fr);
+  gap: 1rem;
+  align-items: start;
+}
+.grading-sec-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  font-size: var(--pg-text-xs);
+  font-weight: 600;
+  color: var(--pg-fg-2);
+}
+.obj-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.2rem, 1fr));
+  gap: .42rem;
+}
+.obj-chip {
+  display: grid;
+  gap: .15rem;
+  padding: .42rem .5rem;
+  border-radius: var(--ui-r);
+  border: 1px solid var(--ui-border);
+  background: var(--pg-bg-sunken);
+  font: inherit;
+  font-size: var(--pg-text-xs);
+  color: var(--pg-fg-1);
+  text-align: left;
+}
+.obj-chip.is-editable { cursor: pointer; transition: border-color .12s ease, background-color .12s ease; }
+.obj-chip.is-editable:hover { border-color: var(--pg-line-strong); }
+.obj-chip.is-ok {
+  border-color: color-mix(in srgb, var(--ui-success) 45%, var(--ui-border));
+  background: color-mix(in srgb, var(--ui-success) 8%, var(--pg-bg-sunken));
+}
+.obj-chip.is-wrong {
+  border-color: color-mix(in srgb, var(--ui-danger) 55%, var(--ui-border));
+  background: color-mix(in srgb, var(--ui-danger) 10%, var(--pg-bg-sunken));
+}
+.obj-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .25rem;
+  font-family: var(--pg-font-mono);
+  font-weight: 700;
+}
+.obj-chip-ans {
+  font-family: var(--pg-font-mono);
+  font-size: .72rem;
+  color: var(--pg-fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subj-list {
+  display: grid;
+  gap: .5rem;
+  max-height: 28rem;
+  overflow-y: auto;
+  padding-right: .2rem;
+}
+.subj-card {
+  padding: .65rem .8rem;
+  border-radius: var(--ui-r);
+  background: var(--pg-bg-sunken);
+  border: 1px solid var(--ui-border);
+  border-left: 3px solid var(--ui-border);
+  display: grid;
+  gap: .3rem;
+  font-size: var(--pg-text-xs);
+}
+.subj-card.is-ok { border-left-color: var(--ui-success); }
+.subj-card.is-wrong { border-left-color: var(--ui-danger); }
+.subj-score-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-family: var(--pg-font-mono);
+}
+.subj-score-edit input[type="number"] {
+  width: 4.5rem;
+  padding: .18rem .35rem;
+  min-height: 1.6rem;
+  text-align: right;
+}
+
 .exam-quick-reg {
   padding: 1rem 1.15rem;
   border-radius: var(--pg-radius-lg);
@@ -571,7 +682,7 @@
   .exam-nav-label { display: none; }
   .exam-nav-item { width: auto; white-space: nowrap; padding: .4rem .7rem; }
   .exam-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .exam-charts-grid, .paper-zxw-grid, .score-entry-grid { grid-template-columns: 1fr; }
+  .exam-charts-grid, .paper-zxw-grid, .score-entry-grid, .grader-split-grid { grid-template-columns: 1fr; }
   .exam-quick-fields, .sub-editor-fields, .doc-ai-grid { grid-template-columns: 1fr 1fr; }
   .q-editor-head { display: none; }
   .q-editor-row { grid-template-columns: 3.6rem 1fr 1fr; }

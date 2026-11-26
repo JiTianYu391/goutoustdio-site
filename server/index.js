@@ -43,7 +43,7 @@ const jsonSmall = express.json({ limit: "64kb" });
 const jsonMedium = express.json({ limit: "512kb" });
 const jsonUpload = express.json({ limit: "35mb" });
 app.use("/api", (req, res, next) => {
-  if ((req.path === "/exam/admin/papers" || req.path === "/exam/admin/parse-doc" || req.path === "/exam/admin/parse-photos") && req.method === "POST") {
+  if (["/exam/admin/papers", "/exam/admin/parse-doc", "/exam/admin/parse-photos", "/exam/admin/smart-scan-grade", "/exam/admin/ai-grade"].includes(req.path) && req.method === "POST") {
     return jsonUpload(req, res, next);
   }
   if (/^\/exam\/admin\//.test(req.path) && ["POST", "PATCH", "PUT"].includes(req.method)) {

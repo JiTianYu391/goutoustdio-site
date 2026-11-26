@@ -16,7 +16,10 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_STATUS = new Set(["draft", "published"]);
 const ALLOWED_FILTERS = new Set(["magic", "bw", "gray", "enhance", "original"]);
 const ALLOWED_ANN_TYPES = new Set(["check", "cross", "circle", "line", "text"]);
+const ALLOWED_ANN_SIZES = new Set(["sm", "md", "lg"]);
 const ALLOWED_QTYPES = new Set(["choice", "multi_choice", "judge", "blank", "listening", "essay", "other"]);
+const EXAM_STAGING_DIR = path.join(EXAM_UPLOAD_DIR, "_staging");
+const STAGING_ID_RE = /^[a-f0-9-]+\.(?:jpg|png|webp)$/;
 export const EXAM_DEPARTMENTS = ["管理部", "内核开发部", "自行车动作部", "软件部", "游戏部"];
 const EXAM_DEPT_SET = new Set(EXAM_DEPARTMENTS);
 const SETTING_SELF_REG = "exam_self_register_enabled";
@@ -172,12 +175,14 @@ function normalizeAnnotations(raw) {
     if (!a || typeof a !== "object") continue;
     const type = str(a.type);
     if (!ALLOWED_ANN_TYPES.has(type)) continue;
+    const size = str(a.size);
     const item = {
       type,
       x: Math.max(0, Math.min(1, num(a.x, 0.5))),
       y: Math.max(0, Math.min(1, num(a.y, 0.5))),
-      color: /^#[0-9a-fA-F]{3,8}$/.test(str(a.color)) ? str(a.color) : "#ef4444",
+      color: /^#[0-9a-fA-F]{3,8}$/.test(str(a.color)) ? str(a.color) : "#e11d48",
     };
+    if (ALLOWED_ANN_SIZES.has(size)) item.size = size;
     if (type === "line") {
       item.x2 = Math.max(0, Math.min(1, num(a.x2, item.x)));
       item.y2 = Math.max(0, Math.min(1, num(a.y2, item.y)));
@@ -189,6 +194,45 @@ function normalizeAnnotations(raw) {
     out.push(item);
   }
   return out;
+}
+
+function cleanupOldStaging() {
+  try {
+    if (!fs.existsSync(EXAM_STAGING_DIR)) return;
+    const cutoff = Date.now() - 2 * 3600 * 1000;
+    for (const name of fs.readdirSync(EXAM_STAGING_DIR)) {
+      if (!STAGING_ID_RE.test(name)) continue;
+      const p = path.join(EXAM_STAGING_DIR, name);
+      try {
+        const st = fs.statSync(p);
+        if (st.mtimeMs < cutoff) fs.unlinkSync(p);
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+}
+
+function stageImageBuffer(decoded) {
+  cleanupOldStaging();
+  fs.mkdirSync(EXAM_STAGING_DIR, { recursive: true });
+  const stagingId = `${crypto.randomUUID()}.${decoded.ext}`;
+  fs.writeFileSync(path.join(EXAM_STAGING_DIR, stagingId), decoded.buf);
+  return stagingId;
+}
+
+function unlinkStagedFiles(stagedPages) {
+  const root = path.resolve(EXAM_STAGING_DIR);
+  let removed = 0;
+  for (const sp of Array.isArray(stagedPages) ? stagedPages : []) {
+    const id = str(sp?.stagingId).trim();
+    if (!STAGING_ID_RE.test(id)) continue;
+    const resolved = path.resolve(root, id);
+    if (!resolved.startsWith(root + path.sep)) continue;
+    try {
+      fs.unlinkSync(resolved);
+      removed++;
+    } catch { /* ignore */ }
+  }
+  return removed;
 }
 
 function unlinkPaperFiles(rows) {
@@ -1607,6 +1651,213 @@ r.post("/admin/ai-grade", async (req, res) => {
   });
 });
 
+// ---- 一步式智能扫卷：直接传图 -> AI 识人判分 -> 精确匹配自动入库，否则暂存并弹出候选确认 ----
+r.post("/admin/smart-scan-grade", async (req, res) => {
+  const examId = Number(req.body?.examId);
+  const subjectId = Number(req.body?.subjectId);
+  const ex = db.prepare("SELECT * FROM exams WHERE id=?").get(examId);
+  if (!ex) return res.status(404).json({ error: "考试不存在" });
+  const sub = db.prepare("SELECT * FROM exam_subjects WHERE id=? AND exam_id=?").get(subjectId, examId);
+  if (!sub) return res.status(404).json({ error: "科目不存在" });
+
+  let pinnedTarget = null;
+  const hasExplicitUser = (req.body?.userId !== undefined && req.body?.userId !== null && req.body?.userId !== "")
+    || Boolean(str(req.body?.examNo).trim());
+  if (hasExplicitUser) {
+    pinnedTarget = resolveUser(req.body?.userId, req.body?.examNo);
+    if (!pinnedTarget) return res.status(404).json({ error: "指定的目标考生不存在，请核对考号" });
+  }
+
+  const rawImgs = Array.isArray(req.body?.images) ? req.body.images : [];
+  if (!rawImgs.length || rawImgs.length > 16) {
+    return res.status(400).json({ error: "单次需上传 1–16 张答题卡照片" });
+  }
+
+  const decodedPages = [];
+  try {
+    for (let i = 0; i < rawImgs.length; i++) {
+      const it = rawImgs[i];
+      const dataUrl = typeof it === "string" ? it : str(it?.imageData || it?.dataUrl);
+      const decoded = decodeImageDataUrl(dataUrl);
+      decodedPages.push({
+        pageNo: i + 1,
+        decoded,
+        dataUrl,
+        width: Math.max(0, Math.min(10000, Math.round(num(it?.width, 0)))),
+        height: Math.max(0, Math.min(10000, Math.round(num(it?.height, 0)))),
+        filterMode: ALLOWED_FILTERS.has(str(it?.filterMode)) ? str(it?.filterMode) : "original",
+      });
+    }
+  } catch (e) {
+    return res.status(400).json({ error: e.message || "图片格式校验失败" });
+  }
+
+  let grading;
+  try {
+    grading = await gradeExamPapersWithAI({
+      pages: decodedPages.map((p) => ({
+        pageNo: p.pageNo,
+        dataUrl: p.dataUrl,
+      })),
+      subject: subjectDto(sub),
+      apiKey: str(req.body?.apiKey),
+      baseUrl: str(req.body?.baseUrl),
+      model: str(req.body?.model),
+    });
+  } catch (e) {
+    const status = Number(e?.status) >= 400 && Number(e?.status) < 600 ? Number(e.status) : 400;
+    return res.status(status).json({ error: e?.message || "AI 智能扫卷失败" });
+  }
+
+  const hasAnyDetected = Boolean(grading.detectedStudent?.examNo || grading.detectedStudent?.name);
+  const match = matchStudentCandidates(grading.detectedStudent, pinnedTarget);
+  const exactTie = Boolean(match.candidates[1] && match.candidates[1].matchPct === 100);
+  const autoDetectedExact = Boolean(
+    !pinnedTarget && match.bestMatch && match.bestMatch.matchPct === 100 && !exactTie,
+  );
+  const pinnedAutoOk = Boolean(pinnedTarget && (!hasAnyDetected || match.isExactTargetMatch));
+  const canAutoSave = autoDetectedExact || pinnedAutoOk;
+
+  if (canAutoSave) {
+    const finalTarget = pinnedTarget || getUser(match.bestMatch.id);
+    if (!finalTarget) return res.status(404).json({ error: "匹配到的目标用户不存在" });
+
+    const subDir = `exam_${examId}`;
+    const fullSubDir = path.join(EXAM_UPLOAD_DIR, subDir);
+    fs.mkdirSync(fullSubDir, { recursive: true });
+    const writtenFiles = [];
+    const insertedPages = [];
+    let savedScore = null;
+
+    try {
+      for (const p of decodedPages) {
+        const relName = `${subDir}/${crypto.randomUUID()}.${p.decoded.ext}`;
+        fs.writeFileSync(path.join(EXAM_UPLOAD_DIR, relName), p.decoded.buf);
+        writtenFiles.push({ file_name: relName, page: p });
+      }
+
+      db.exec("BEGIN");
+      try {
+        let maxPage = db.prepare(
+          "SELECT COALESCE(MAX(page_no), 0) m FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?",
+        ).get(examId, subjectId, finalTarget.id).m;
+        const insPage = db.prepare(`
+          INSERT INTO exam_paper_pages (exam_id, subject_id, user_id, page_no, file_name, mime_type, width, height, size_bytes, filter_mode, annotations_json, uploaded_by, created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `);
+        const now = Date.now();
+        for (const wf of writtenFiles) {
+          maxPage += 1;
+          const cleanAnns = normalizeAnnotations(grading.annotationsByPageNo.get(wf.page.pageNo) || []);
+          const pid = Number(insPage.run(
+            examId, subjectId, finalTarget.id, maxPage, wf.file_name, wf.page.decoded.mime,
+            wf.page.width, wf.page.height, wf.page.decoded.buf.length, wf.page.filterMode,
+            JSON.stringify(cleanAnns), req.user.id, now,
+          ).lastInsertRowid);
+          insertedPages.push(paperDto(db.prepare("SELECT * FROM exam_paper_pages WHERE id=?").get(pid)));
+        }
+
+        savedScore = normalizeAndSaveScore({
+          examId,
+          subject: sub,
+          userId: finalTarget.id,
+          gradedBy: req.user.id,
+          payload: {
+            score: grading.score,
+            absent: false,
+            items: grading.items,
+            useItemsSum: grading.items.length > 0,
+            teacherComment: grading.teacherComment,
+          },
+        });
+        db.exec("COMMIT");
+      } catch (dbErr) {
+        db.exec("ROLLBACK");
+        unlinkPaperFiles(writtenFiles);
+        throw dbErr;
+      }
+    } catch (e) {
+      return res.status(400).json({ error: e.message || "保存 AI 扫卷结果失败" });
+    }
+
+    return res.json({
+      ok: true,
+      needsConfirmation: false,
+      targetUser: examUserDto(finalTarget),
+      pages: insertedPages,
+      grading: {
+        score: grading.score,
+        fullScore: grading.fullScore,
+        teacherComment: grading.teacherComment,
+        items: grading.items,
+        wrongCount: grading.wrongCount,
+        model: grading.model,
+        pagesUpdated: insertedPages.length,
+        autoSaved: true,
+        saved: savedScore,
+        detectedStudent: grading.detectedStudent || null,
+      },
+    });
+  }
+
+  // 需人工核对：写入 _staging 暂存，绝不污染数据库内任何考生原卷与成绩
+  const stagedPages = [];
+  const pageAnnotations = {};
+  try {
+    for (const p of decodedPages) {
+      const stagingId = stageImageBuffer(p.decoded);
+      const cleanAnns = normalizeAnnotations(grading.annotationsByPageNo.get(p.pageNo) || []);
+      pageAnnotations[stagingId] = cleanAnns;
+      stagedPages.push({
+        stagingId,
+        pageNo: p.pageNo,
+        mimeType: p.decoded.mime,
+        width: p.width,
+        height: p.height,
+        sizeBytes: p.decoded.buf.length,
+        filterMode: p.filterMode,
+        annotations: cleanAnns,
+      });
+    }
+  } catch (e) {
+    unlinkStagedFiles(stagedPages);
+    return res.status(500).json({ error: e.message || "暂存扫描件失败" });
+  }
+
+  const reasons = [];
+  if (!pinnedTarget) {
+    reasons.push(hasAnyDetected
+      ? "AI 自动识卷已检索数据库最相似成员，请核对确认后归档"
+      : "未能清晰识别卷头考号或姓名，请手动指定答卷归属考生");
+  } else {
+    reasons.push(...match.discrepancyReasons);
+  }
+
+  return res.json({
+    ok: true,
+    needsConfirmation: true,
+    sourceUserId: pinnedTarget ? pinnedTarget.id : 0,
+    currentTarget: pinnedTarget ? examUserDto(pinnedTarget) : null,
+    stagedPages,
+    discrepancyReasons: reasons,
+    bestMatch: match.bestMatch,
+    candidates: match.candidates,
+    grading: {
+      score: grading.score,
+      fullScore: grading.fullScore,
+      teacherComment: grading.teacherComment,
+      items: grading.items,
+      wrongCount: grading.wrongCount,
+      model: grading.model,
+      pagesUpdated: 0,
+      autoSaved: false,
+      saved: null,
+      detectedStudent: grading.detectedStudent || null,
+      pageAnnotations,
+    },
+  });
+});
+
 // ---- 管理员确认 AI 识别错/模糊匹配的考生归属并正式写入成绩与批改 ----
 r.post("/admin/ai-grade/confirm", (req, res) => {
   const examId = Number(req.body?.examId);
@@ -1626,51 +1877,130 @@ r.post("/admin/ai-grade/confirm", (req, res) => {
     return res.status(400).json({ error: "缺少 AI 批改结果数据" });
   }
 
-  const pageIds = Array.isArray(req.body?.pageIds)
-    ? req.body.pageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
-    : [];
-  let targetPages = [];
-  if (pageIds.length) {
-    const placeholders = pageIds.map(() => "?").join(",");
-    targetPages = db.prepare(
-      `SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND id IN (${placeholders}) ORDER BY page_no ASC, id ASC`,
-    ).all(examId, subjectId, ...pageIds);
-  } else if (sourceUserId) {
-    targetPages = db.prepare(
-      "SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=? ORDER BY page_no ASC, id ASC",
-    ).all(examId, subjectId, sourceUserId);
-  }
-
   const applyAnnotations = req.body?.applyAnnotations !== false;
   const pageAnnotations = gradingIn.pageAnnotations && typeof gradingIn.pageAnnotations === "object"
     ? gradingIn.pageAnnotations
     : {};
+  const stagedIn = Array.isArray(req.body?.stagedPages) ? req.body.stagedPages : [];
+  const pageIds = Array.isArray(req.body?.pageIds)
+    ? req.body.pageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    : [];
+
+  let targetPages = [];
+  if (!stagedIn.length) {
+    if (pageIds.length) {
+      const placeholders = pageIds.map(() => "?").join(",");
+      targetPages = db.prepare(
+        `SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND id IN (${placeholders}) ORDER BY page_no ASC, id ASC`,
+      ).all(examId, subjectId, ...pageIds);
+    } else if (sourceUserId) {
+      targetPages = db.prepare(
+        "SELECT * FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=? ORDER BY page_no ASC, id ASC",
+      ).all(examId, subjectId, sourceUserId);
+    }
+  }
+
   let reassignedPapers = 0;
   let pagesUpdated = 0;
   let savedScore = null;
+  const createdPages = [];
+  const movedFiles = [];
+  const stagingRoot = path.resolve(EXAM_STAGING_DIR);
+
+  // 若有暂存扫描件，先检验并移入正式目录 exam_${examId}
+  if (stagedIn.length) {
+    const subDir = `exam_${examId}`;
+    const fullSubDir = path.join(EXAM_UPLOAD_DIR, subDir);
+    fs.mkdirSync(fullSubDir, { recursive: true });
+    for (const sp of stagedIn.slice(0, 16)) {
+      const sid = str(sp?.stagingId).trim();
+      if (!STAGING_ID_RE.test(sid)) {
+        return res.status(400).json({ error: "暂存扫描件标识非法" });
+      }
+      const srcPath = path.resolve(stagingRoot, sid);
+      if (!srcPath.startsWith(stagingRoot + path.sep) || !fs.existsSync(srcPath)) {
+        return res.status(404).json({ error: "暂存扫描件已过期或不存在，请重新扫描" });
+      }
+    }
+    try {
+      for (const sp of stagedIn.slice(0, 16)) {
+        const sid = str(sp.stagingId).trim();
+        const srcPath = path.resolve(stagingRoot, sid);
+        const relName = `${subDir}/${sid}`;
+        const dstPath = path.join(EXAM_UPLOAD_DIR, relName);
+        try {
+          fs.renameSync(srcPath, dstPath);
+        } catch (mvErr) {
+          if (mvErr.code === "EXDEV") {
+            fs.copyFileSync(srcPath, dstPath);
+            fs.unlinkSync(srcPath);
+          } else {
+            throw mvErr;
+          }
+        }
+        movedFiles.push({ file_name: relName, sp });
+      }
+    } catch (e) {
+      unlinkPaperFiles(movedFiles);
+      return res.status(500).json({ error: e.message || "转存扫描件失败" });
+    }
+  }
 
   db.exec("BEGIN");
   try {
-    if (sourceUserId && sourceUserId !== targetUser.id && targetPages.length) {
+    if (movedFiles.length) {
       let maxPage = db.prepare(
         "SELECT COALESCE(MAX(page_no), 0) m FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?",
       ).get(examId, subjectId, targetUser.id).m;
-      const moveStmt = db.prepare("UPDATE exam_paper_pages SET user_id=?, page_no=? WHERE id=?");
-      for (const row of targetPages) {
-        if (row.user_id !== targetUser.id) {
-          maxPage += 1;
-          moveStmt.run(targetUser.id, maxPage, row.id);
-          reassignedPapers++;
+      const insPage = db.prepare(`
+        INSERT INTO exam_paper_pages (exam_id, subject_id, user_id, page_no, file_name, mime_type, width, height, size_bytes, filter_mode, annotations_json, uploaded_by, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `);
+      const now = Date.now();
+      for (const mf of movedFiles) {
+        maxPage += 1;
+        const sid = str(mf.sp.stagingId).trim();
+        const rawAnns = applyAnnotations
+          ? (pageAnnotations[sid] ?? mf.sp.annotations ?? [])
+          : [];
+        const cleanAnns = normalizeAnnotations(rawAnns);
+        const mime = /^image\/(?:png|webp)$/.test(str(mf.sp.mimeType)) ? str(mf.sp.mimeType) : "image/jpeg";
+        const filterMode = ALLOWED_FILTERS.has(str(mf.sp.filterMode)) ? str(mf.sp.filterMode) : "original";
+        const pid = Number(insPage.run(
+          examId, subjectId, targetUser.id, maxPage, mf.file_name, mime,
+          Math.max(0, Math.round(num(mf.sp.width, 0))),
+          Math.max(0, Math.round(num(mf.sp.height, 0))),
+          Math.max(0, Math.round(num(mf.sp.sizeBytes, 0))),
+          filterMode,
+          JSON.stringify(cleanAnns),
+          req.user.id,
+          now,
+        ).lastInsertRowid);
+        createdPages.push(paperDto(db.prepare("SELECT * FROM exam_paper_pages WHERE id=?").get(pid)));
+        pagesUpdated++;
+      }
+    } else {
+      if (sourceUserId && sourceUserId !== targetUser.id && targetPages.length) {
+        let maxPage = db.prepare(
+          "SELECT COALESCE(MAX(page_no), 0) m FROM exam_paper_pages WHERE exam_id=? AND subject_id=? AND user_id=?",
+        ).get(examId, subjectId, targetUser.id).m;
+        const moveStmt = db.prepare("UPDATE exam_paper_pages SET user_id=?, page_no=? WHERE id=?");
+        for (const row of targetPages) {
+          if (row.user_id !== targetUser.id) {
+            maxPage += 1;
+            moveStmt.run(targetUser.id, maxPage, row.id);
+            reassignedPapers++;
+          }
         }
       }
-    }
-    if (applyAnnotations && targetPages.length) {
-      const updPage = db.prepare("UPDATE exam_paper_pages SET annotations_json=? WHERE id=?");
-      for (const row of targetPages) {
-        const rawAnns = pageAnnotations[String(row.id)] ?? pageAnnotations[row.id];
-        if (Array.isArray(rawAnns)) {
-          updPage.run(JSON.stringify(normalizeAnnotations(rawAnns)), row.id);
-          pagesUpdated++;
+      if (applyAnnotations && targetPages.length) {
+        const updPage = db.prepare("UPDATE exam_paper_pages SET annotations_json=? WHERE id=?");
+        for (const row of targetPages) {
+          const rawAnns = pageAnnotations[String(row.id)] ?? pageAnnotations[row.id];
+          if (Array.isArray(rawAnns)) {
+            updPage.run(JSON.stringify(normalizeAnnotations(rawAnns)), row.id);
+            pagesUpdated++;
+          }
         }
       }
     }
@@ -1692,6 +2022,7 @@ r.post("/admin/ai-grade/confirm", (req, res) => {
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
+    unlinkPaperFiles(movedFiles);
     return res.status(400).json({ error: e.message || "确认归档失败" });
   }
 
@@ -1699,6 +2030,7 @@ r.post("/admin/ai-grade/confirm", (req, res) => {
     ok: true,
     needsConfirmation: false,
     reassignedPapers,
+    createdPages,
     targetUser: examUserDto(targetUser),
     grading: {
       score: savedScore.score,
@@ -1713,6 +2045,13 @@ r.post("/admin/ai-grade/confirm", (req, res) => {
       detectedStudent: gradingIn.detectedStudent || null,
     },
   });
+});
+
+// ---- 管理员取消暂存确认时清理未入库的临时扫描件 ----
+r.post("/admin/ai-grade/discard", (req, res) => {
+  const stagedPages = Array.isArray(req.body?.stagedPages) ? req.body.stagedPages : [];
+  const discarded = unlinkStagedFiles(stagedPages);
+  res.json({ ok: true, discarded });
 });
 
 // ---- 考试管理 ----

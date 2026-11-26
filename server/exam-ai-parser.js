@@ -473,7 +473,7 @@ function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
   const hasTpl = Array.isArray(template) && template.length > 0;
   return [
     "你是严谨专业的智能阅卷老师（智学网式 AI 阅卷引擎）。你会看到考生上传的印刷或手写答题卡/答卷扫描照片（按第 1 页…第 N 页排序），以及本题库的标准题目与参考答案。",
-    "请逐题精准识别考生在答题卡/试卷上的作答（支持印刷填涂卡与手绘方框涂黑卡片、手写中文/英文/代码答案），对照参考答案与评分标准独立、客观地给分，并给出可直接在答题卡上绘制红笔批改标记的位置坐标。",
+    "请逐题精准识别考生在答题卡/试卷上的作答（支持印刷填涂卡与手绘方框涂黑卡片、手写中文/英文/代码答案），对照参考答案与评分标准独立、客观地给分，并按整张上传图片的 0–1000 相对坐标系输出精准的红笔批改位置。",
     "必须严格输出合法 json 对象！",
     "",
     `科目：${subjectName || "综合"}，科目满分：${fullScore} 分。`,
@@ -481,11 +481,17 @@ function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
       ? "请严格按照给定题目清单的题号 `no` 逐题批改输出（共 " + template.length + " 题，不要遗漏）："
       : "当前科目未预设小题清单，请从答卷中识别出全部作答题号与分值并批改：",
     "",
-    "重要识别与判分规范：",
+    "重要识别与定位规范：",
     "1. 卷头考生信息：尽量从答题卡顶部读取考号（如 4 位数字 `0413`，可结合「考号」手写框及右上角准考证号填涂区交叉验证）、姓名（name）与部门（department），写入 detectedStudent。",
     "2. 手绘/手涂选择题方框识别：多栏排列的选择题方框（如 1.[A][B][■C] 4.[A][■B][C]）中，请严格以「整框涂黑/阴影最深」的选项字母为考生所选；注意对照卡面上可能印刷或手写的「填涂示例」（例如斜线/浅划/误涂通常表示无效或划销），逐题核对题号数字与紧邻的一排选项框，避免跨栏看错题号或把涂改前划掉的方框误认为当前选择。",
     "3. 主观题与弹性标准：若参考答案注明「意思对即可」「符合题意即可」「言之有理即可」等弹性标准，只要考生手写答案的核心概念正确且自圆其说即应给满分或酌情给高分，不要机械逐字扣分。",
     "4. 独立阅卷原则：必须完全根据考生实际作答与标准答案判分，不要直接抄写卷面上可能已经存在的手写红字分数！",
+    "5. 精准坐标规范（按整张图片的 0–1000 相对比例定位）：",
+    "   - 坐标系以**整张上传图片**的左上角为 `(0, 0)`、右下角为 `(1000, 1000)`；若照片/截图外围带有平板边框、桌面留白或黑边，也必须把外围留白占用的整图比例算入 `(x, y)`，保证红笔标注严丝合缝落在纸面对应位置上。",
+    "   - totalScorePos: `{ \"x\": 0..1000, \"y\": 0..1000 }`，指向第 1 页顶部空白处（如标题与准考证号框之间的空白区域，避开条形码、二维码与文字），用于书写红色总分数字。",
+    "   - 每题 markPos: `{ \"x\": 0..1000, \"y\": 0..1000 }`：",
+    "     * 选择题/客观题的 `markPos` 必须精准落在**「一、选择题」标题下方该题自身的选项方框中右侧**！绝对不要偏移到上方的「考生须知」「考生禁填」或「填涂示例」区域！",
+    "     * 主观题/大题的 `markPos` 应指向考生该题手写作答文字**紧下方或右侧空白处**，避免遮挡正文。",
     "",
     "每道题输出字段要求：",
     "- no: 字符串题号（若已提供清单，必须与清单中的 no 完全一致）",
@@ -494,14 +500,15 @@ function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
     "- full: 满分（数字）",
     "- got: 判得分值（0 到 full 之间的数字，支持 0.5 分步长）",
     "- isCorrect: 是否满分全对（true/false）",
-    "- reason: 简短精准的批改评语/扣分原因（如 \"涂选 C，正确\" 或 \"涂选 C（应为 B）\" 或 \"阐述了 VFS 统一上层接口的作用，符合标准\"）",
-    "- markPos: { x, y } 归一化坐标（0.08~0.92 之间），指向该题号或考生答案旁适合加盖红色对勾 ✓ / 叉号 ✗ / 扣分批注的位置",
+    "- reason: 简短精准的批改评语/扣分原因（如 \"涂选 C，正确\" 或 \"涂选 B（应为 C）\"）",
+    "- markPos: `{ x, y }` 坐标（0–1000 整数）",
     "",
     "必须返回的 json 格式示例：",
     JSON.stringify({
       detectedStudent: { examNo: "0413", name: "雅俊宇", department: "管理部" },
-      totalScore: 88,
-      teacherComment: "总体完成度高，主观题阐述清晰，选择题第 8 题有误。",
+      totalScore: 94,
+      totalScorePos: { x: 505, y: 98 },
+      teacherComment: "总体完成度高，主观题阐述清晰，选择题第 5 题有误。",
       items: [
         {
           no: "1",
@@ -511,7 +518,17 @@ function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
           got: 6,
           isCorrect: true,
           reason: "涂选 C，正确",
-          markPos: { x: 0.12, y: 0.42 },
+          markPos: { x: 145, y: 318 },
+        },
+        {
+          no: "5",
+          pageNo: 1,
+          studentAnswer: "B",
+          full: 6,
+          got: 0,
+          isCorrect: false,
+          reason: "涂选 B（应为 C）",
+          markPos: { x: 270, y: 344 },
         },
         {
           no: "11",
@@ -521,17 +538,35 @@ function buildGradingSystemPrompt({ subjectName, fullScore, template }) {
           got: 20,
           isCorrect: true,
           reason: "准确说明 VFS 为抽象层，符合「意思对即可」标准",
-          markPos: { x: 0.72, y: 0.62 },
+          markPos: { x: 225, y: 530 },
         },
       ],
     }, null, 2),
   ].join("\n");
 }
 
-function clamp01Margin(v, def = 0.5) {
+function clamp01Margin(v, def = 0.5, min = 0.04, max = 0.96) {
   const n = Number(v);
   if (!Number.isFinite(n)) return def;
-  return Math.round(Math.max(0.06, Math.min(0.94, n)) * 1000) / 1000;
+  return Math.round(Math.max(min, Math.min(max, n)) * 1000) / 1000;
+}
+
+function normCoord01(v, def = 0.5, min = 0.04, max = 0.96) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  const scaled = n > 1.5 ? n / 1000 : n;
+  return clamp01Margin(scaled, def, min, max);
+}
+
+function isObjectiveItem(it) {
+  const qt = String(it?.qtype || "").trim();
+  if (qt === "choice" || qt === "multi_choice" || qt === "judge" || qt === "listening") return true;
+  if (qt === "essay" || qt === "blank") return false;
+  const sec = String(it?.section || "");
+  if (/(选择|单选|多选|判断|听力)/.test(sec)) return true;
+  if (/(主观|简答|论述|计算|填空|代码|编程|大题)/.test(sec)) return false;
+  const ans = String(it?.answer || "").trim();
+  return Number(it?.full || 0) <= 10 && ans.length > 0 && ans.length <= 6 && /^[A-Za-z对错TF✓✗\s,;、]+$/i.test(ans);
 }
 
 export function normalizeAiGradingResult(raw, { subject, pagesMeta = [], model = DEFAULT_MODEL } = {}) {
@@ -611,62 +646,99 @@ export function normalizeAiGradingResult(raw, { subject, pagesMeta = [], model =
     || `DeepSeek (${model}) 自动阅卷：共识别 ${items.length} 题，实得 ${score} / ${fullScoreLimit} 分。`)
     .slice(0, 500);
 
+  // 真实卷面红笔批改样式：
+  // 1) 全对题（含选择题与主观题）仅画一枚简洁红色 ✓（不附加长串文字）；
+  // 2) 错题/扣分题画红色 ✗ 并仅附简短扣分数（如 -6）；
+  // 3) 首页顶部空白处标注简洁红色总分（size: "lg"）。
   const annotationsByPageNo = new Map();
   const pageFallbacks = new Map();
-  for (let i = 0; i < pageCount; i++) pageFallbacks.set(i + 1, 0);
+  const placedPoints = new Map();
+  for (let i = 0; i < pageCount; i++) {
+    pageFallbacks.set(i + 1, 0);
+    placedPoints.set(i + 1, []);
+  }
 
   for (const it of items) {
     const pNo = it.pageNo || 1;
     if (!annotationsByPageNo.has(pNo)) annotationsByPageNo.set(pNo, []);
+    if (!placedPoints.has(pNo)) placedPoints.set(pNo, []);
     const arr = annotationsByPageNo.get(pNo);
-    if (arr.length >= 60) continue;
+    const pts = placedPoints.get(pNo);
+    if (arr.length >= 90) continue;
+
+    const isObj = isObjectiveItem(it);
+    const markSize = isObj ? "sm" : "md";
 
     let x, y;
     if (it.markPos && (it.markPos.x !== undefined || it.markPos.y !== undefined)) {
-      x = clamp01Margin(it.markPos.x, 0.8);
-      y = clamp01Margin(it.markPos.y, 0.2);
+      x = normCoord01(it.markPos.x, 0.5, 0.05, 0.92);
+      y = normCoord01(it.markPos.y, 0.4, 0.06, 0.94);
     } else {
       const idxOnPage = pageFallbacks.get(pNo) || 0;
       pageFallbacks.set(pNo, idxOnPage + 1);
-      const col = idxOnPage % 2;
-      const row = Math.floor(idxOnPage / 2);
-      x = col === 0 ? 0.14 : 0.56;
-      y = clamp01Margin(0.14 + (row % 10) * 0.08, 0.2);
+      if (isObj) {
+        const col = idxOnPage % 4;
+        const row = Math.floor(idxOnPage / 4);
+        x = clamp01Margin(0.14 + col * 0.14, 0.14);
+        y = clamp01Margin(0.32 + (row % 6) * 0.036, 0.32);
+      } else {
+        x = 0.24;
+        y = clamp01Margin(0.52 + (idxOnPage % 6) * 0.16, 0.52);
+      }
     }
 
-    const markText = it.wrong
-      ? `✗ #${it.no} (${it.got}/${it.full})`
-      : `✓ #${it.no} +${it.got}`;
+    // 轻微避让完全重叠的相邻坐标，保持标注可读性
+    for (let step = 0; step < 4; step++) {
+      const clash = pts.some((pt) => Math.hypot(pt.x - x, pt.y - y) < 0.024);
+      if (!clash) break;
+      x = clamp01Margin(x + 0.026, x, 0.05, 0.92);
+    }
+    pts.push({ x, y });
+
     arr.push({
       type: it.wrong ? "cross" : "check",
       x,
       y,
-      color: "#ef4444",
+      color: "#e11d48",
+      size: markSize,
     });
-    if (items.length <= 30 || it.wrong) {
+
+    if (it.wrong) {
+      const deduct = round1(Math.max(0.5, it.full - it.got));
       arr.push({
         type: "text",
-        x: clamp01Margin(x + 0.04, x),
-        y: clamp01Margin(y + 0.01, y),
-        text: markText.slice(0, 32),
-        color: "#ef4444",
+        x: clamp01Margin(x + 0.032, x, 0.05, 0.94),
+        y: clamp01Margin(y - 0.016, y, 0.05, 0.95),
+        text: `-${deduct}`,
+        color: "#e11d48",
+        size: "sm",
       });
     }
   }
 
   const firstPageNo = pagesMeta[0]?.pageNo || 1;
   if (!annotationsByPageNo.has(firstPageNo)) annotationsByPageNo.set(firstPageNo, []);
+  const totPos = obj.totalScorePos && typeof obj.totalScorePos === "object" ? obj.totalScorePos : null;
+  const totX = totPos ? normCoord01(totPos.x, 0.50, 0.08, 0.92) : 0.50;
+  const totY = totPos ? normCoord01(totPos.y, 0.10, 0.04, 0.25) : 0.10;
   annotationsByPageNo.get(firstPageNo).unshift({
     type: "text",
-    x: 0.78,
-    y: 0.07,
-    text: `AI 得分: ${score}/${fullScoreLimit}`,
-    color: "#ef4444",
+    x: totX,
+    y: totY,
+    text: String(score),
+    color: "#e11d48",
+    size: "lg",
   });
 
   const cleanItems = items.map(({ pageNo: _p, markPos: _m, ...rest }) => rest);
   const rawDet = obj.detectedStudent && typeof obj.detectedStudent === "object" ? obj.detectedStudent : {};
-  const detNoM = /\d{4}/.exec(String(rawDet.examNo || "").trim());
+  const mappedNo = String(rawDet.examNo || "").trim()
+    .replace(/[Oo]/g, "0")
+    .replace(/[Il|]/g, "1")
+    .replace(/[Zz]/g, "2")
+    .replace(/[Ss]/g, "5")
+    .replace(/[B]/g, "8");
+  const detNoM = /\d{4}/.exec(mappedNo);
   const detectedStudent = {
     examNo: detNoM ? detNoM[0] : "",
     name: String(rawDet.name || "").trim().slice(0, 32),
@@ -719,7 +791,7 @@ export async function gradeExamPapersWithAI({
         content: [
           {
             type: "text",
-            text: `请批改这 ${pages.length} 页考生答题卡/答卷。\n\n【题目清单与参考答案】\n${tplText}\n\n请按 json 格式返回总分、评语及每道小题的识别作答、得分、扣分原因和红笔坐标。`,
+            text: `请批改这 ${pages.length} 页考生答题卡/答卷。\n\n【题目清单与参考答案】\n${tplText}\n\n请按 json 格式返回总分、totalScorePos、评语及每道小题的识别作答、得分、扣分原因与整图 0–1000 相对坐标。`,
           },
           ...pages.map((p) => ({
             type: "image_url",

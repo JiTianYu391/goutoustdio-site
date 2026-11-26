@@ -2,7 +2,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -16,7 +16,7 @@ delete process.env.DEEPSEEK_BASE_URL;
 delete process.env.DEEPSEEK_MODEL;
 
 const { app } = await import("../server/index.js");
-const { db } = await import("../server/db.js");
+const { db, EXAM_UPLOAD_DIR } = await import("../server/db.js");
 const { syncAdmin } = await import("../server/util.js");
 
 let server, base, mockDsServer, mockDsBase;
@@ -67,33 +67,34 @@ before(async () => {
         res.end(JSON.stringify({
           choices: [{
             message: {
-              content: JSON.stringify({
-                totalScore: 22,
-                detectedStudent: mockGradeDetected,
-                teacherComment: "AI 初评：听力题全对，主观题第(2)问缺关键说明扣 8 分。",
-                items: [
-                  {
-                    no: "1",
-                    pageNo: 1,
-                    studentAnswer: "B",
-                    full: 10,
-                    got: 10,
-                    isCorrect: true,
-                    reason: "填涂 B，正确",
-                    markPos: { x: 0.25, y: 0.25 },
-                  },
-                  {
-                    no: "2",
-                    pageNo: 1,
-                    studentAnswer: "按模块拆分，未写回滚",
-                    full: 20,
-                    got: 12,
-                    isCorrect: false,
-                    reason: "第(2)问缺少回滚方案描述，扣 8 分",
-                    markPos: { x: 0.65, y: 0.55 },
-                  },
-                ],
-              }),
+            content: JSON.stringify({
+              totalScore: 22,
+              totalScorePos: { x: 500, y: 100 },
+              detectedStudent: mockGradeDetected,
+              teacherComment: "AI 初评：听力题全对，主观题第(2)问缺关键说明扣 8 分。",
+              items: [
+                {
+                  no: "1",
+                  pageNo: 1,
+                  studentAnswer: "B",
+                  full: 10,
+                  got: 10,
+                  isCorrect: true,
+                  reason: "填涂 B，正确",
+                  markPos: { x: 350, y: 360 },
+                },
+                {
+                  no: "2",
+                  pageNo: 1,
+                  studentAnswer: "按模块拆分，未写回滚",
+                  full: 20,
+                  got: 12,
+                  isCorrect: false,
+                  reason: "第(2)问缺少回滚方案描述，扣 8 分",
+                  markPos: { x: 650, y: 550 },
+                },
+              ],
+            }),
             },
           }],
         }));
@@ -288,7 +289,20 @@ test("拍照多图 AI 识卷 -> 保存考试 -> 考生端查看扫描答题卡 +
   assert.equal(sub.mine.items[1].got, 12);
   assert.match(sub.mine.items[1].aiComment, /扣 8 分/);
   assert.equal(sub.papers.length, 1);
-  assert.ok(sub.papers[0].annotations.length >= 3, "应自动生成总分、对勾、叉号与扣分红笔标注");
+  const anns = sub.papers[0].annotations;
+  assert.equal(anns.length, 4, "应仅输出顶部总分 + 满分单对勾 + 错题叉号 + 简短扣分，不加冗余长文本");
+  const totalAnn = anns.find((a) => a.type === "text" && a.size === "lg");
+  assert.ok(totalAnn && totalAnn.text === "22", "顶部总分应只写清晰纯数字");
+  assert.ok(Math.abs(totalAnn.x - 0.5) < 0.02 && Math.abs(totalAnn.y - 0.1) < 0.02);
+  const q1Check = anns.find((a) => a.type === "check");
+  assert.ok(q1Check && q1Check.size === "sm");
+  assert.ok(Math.abs(q1Check.x - 0.35) < 0.02 && Math.abs(q1Check.y - 0.36) < 0.02, "0–1000 坐标应按比例换算为 0.35, 0.36");
+  assert.ok(!anns.some((a) => a.type === "text" && /#1\s*\+10|AI 得分/.test(a.text)), "不应再输出冗余 #1 +10 或 AI 得分字样");
+  assert.ok(anns.some((a) => a.type === "cross"));
+  assert.ok(anns.some((a) => a.type === "text" && a.text === "-8" && a.size === "sm"));
+
+  const sysPrompt = lastDsRequest?.messages?.[0]?.content || "";
+  assert.ok(!sysPrompt.includes("浅青色") && !sysPrompt.includes("网格"), "提示词不得写浅青色坐标网格误导模型");
 
   // 错题本自动收录失分题 #2
   const misRes = await api("GET", `/api/exam/mistakes?examId=${examId}`, undefined, stuCookie);
@@ -430,6 +444,108 @@ test("AI 扫错考生姓名/选错人（如马俊宇扫成梁俊宇）：数据�
   const bobAfter = await api("GET", `/api/exam/exams/${exId}/report?userId=${stuBob.id}`, undefined, adminCookie);
   assert.equal(bobAfter.json.mine.hasRecord, false);
   assert.equal(bobAfter.json.subjects[0].papers.length, 0);
+
+  mockGradeDetected = { examNo: "0413", name: "张同学", department: "管理部" };
+});
+
+test("统一阅卷中心 smart-scan-grade：自动认人无歧义直存 + 误读暂存 _staging 确认迁移/取消清理", async () => {
+  const stuMa = db.prepare("SELECT id, exam_no, display_name FROM users WHERE exam_no=?").get("0426");
+  assert.ok(stuMa);
+
+  const exRes = await api("POST", "/api/exam/admin/exams", {
+    title: "统一阅卷中心智能扫卷集成测试",
+    status: "published",
+    subjects: [{
+      name: "内核技术",
+      fullScore: 30,
+      questions: [
+        { no: "1", title: "单选题", tag: "基础", full: 10, answer: "B" },
+        { no: "2", title: "主观题", tag: "架构", full: 20, answer: "意思对即可" },
+      ],
+    }],
+  }, adminCookie);
+  assert.equal(exRes.status, 201);
+  const exId = exRes.json.exam.id;
+  const subId = exRes.json.exam.subjects[0].id;
+
+  // A. 不传 userId，OCR 精确识别考号 0426 + 姓名 马俊宇 -> 直接自动保存，无需弹窗
+  mockDsMode = "grade";
+  mockGradeDetected = { examNo: "0426", name: "马俊宇", department: "管理部" };
+  const autoRes = await api("POST", "/api/exam/admin/smart-scan-grade", {
+    examId: exId,
+    subjectId: subId,
+    images: [{ pageNo: 1, imageData: VALID_JPEG_DATA_URL, width: 1200, height: 1600, filterMode: "original" }],
+  }, adminCookie);
+  assert.equal(autoRes.status, 200);
+  assert.equal(autoRes.json.needsConfirmation, false);
+  assert.equal(autoRes.json.targetUser.id, stuMa.id);
+  assert.equal(autoRes.json.grading.autoSaved, true);
+  assert.equal(autoRes.json.pages.length, 1);
+
+  const maAutoRep = await api("GET", `/api/exam/exams/${exId}/report?userId=${stuMa.id}`, undefined, adminCookie);
+  assert.equal(maAutoRep.json.mine.totalScore, 22);
+  assert.equal(maAutoRep.json.subjects[0].papers.length, 1);
+
+  // 删除上述自动创建页后测试 B. 模糊误读（未识别考号、姓名误读为梁俊宇）-> 暂存 _staging，取消时 discard 清理暂存
+  await api("DELETE", `/api/exam/admin/papers?examId=${exId}&subjectId=${subId}&userId=${stuMa.id}`, undefined, adminCookie);
+  await api("DELETE", `/api/exam/admin/exams/${exId}/scores/${stuMa.id}`, undefined, adminCookie);
+
+  mockGradeDetected = { examNo: "", name: "梁俊宇", department: "管理部" };
+  const stageCancelRes = await api("POST", "/api/exam/admin/smart-scan-grade", {
+    examId: exId,
+    subjectId: subId,
+    images: [{ pageNo: 1, imageData: VALID_JPEG_DATA_URL, width: 1200, height: 1600, filterMode: "original" }],
+  }, adminCookie);
+  assert.equal(stageCancelRes.status, 200);
+  assert.equal(stageCancelRes.json.needsConfirmation, true);
+  assert.equal(stageCancelRes.json.bestMatch.id, stuMa.id);
+  assert.equal(stageCancelRes.json.stagedPages.length, 1);
+  const cancelStagingId = stageCancelRes.json.stagedPages[0].stagingId;
+  const cancelStagingFile = path.join(EXAM_UPLOAD_DIR, "_staging", cancelStagingId);
+  assert.equal(existsSync(cancelStagingFile), true, "待确认图片应暂存于 _staging 目录");
+
+  const discRes = await api("POST", "/api/exam/admin/ai-grade/discard", {
+    stagedPages: stageCancelRes.json.stagedPages,
+  }, adminCookie);
+  assert.equal(discRes.status, 200);
+  assert.equal(discRes.json.discarded, 1);
+  assert.equal(existsSync(cancelStagingFile), false, "取消确认后 discard 接口应清理 _staging 临时文件");
+
+  // C. 再次触发误读 -> 确认归入马俊宇：_staging 文件迁移至正式目录，红笔标注与成绩落库
+  const stageOkRes = await api("POST", "/api/exam/admin/smart-scan-grade", {
+    examId: exId,
+    subjectId: subId,
+    images: [{ pageNo: 1, imageData: VALID_JPEG_DATA_URL, width: 1200, height: 1600, filterMode: "original" }],
+  }, adminCookie);
+  assert.equal(stageOkRes.status, 200);
+  assert.equal(stageOkRes.json.needsConfirmation, true);
+  const okStagingId = stageOkRes.json.stagedPages[0].stagingId;
+  const okStagingFile = path.join(EXAM_UPLOAD_DIR, "_staging", okStagingId);
+  assert.equal(existsSync(okStagingFile), true);
+
+  const confirmRes = await api("POST", "/api/exam/admin/ai-grade/confirm", {
+    examId: exId,
+    subjectId: subId,
+    targetUserId: stuMa.id,
+    stagedPages: stageOkRes.json.stagedPages,
+    applyAnnotations: true,
+    grading: stageOkRes.json.grading,
+  }, adminCookie);
+  assert.equal(confirmRes.status, 200);
+  assert.equal(confirmRes.json.needsConfirmation, false);
+  assert.equal(confirmRes.json.createdPages.length, 1);
+  assert.equal(existsSync(okStagingFile), false, "确认入库后暂存文件应已迁离 _staging");
+
+  const maFinalRep = await api("GET", `/api/exam/exams/${exId}/report?userId=${stuMa.id}`, undefined, adminCookie);
+  assert.equal(maFinalRep.status, 200);
+  assert.equal(maFinalRep.json.mine.totalScore, 22);
+  assert.equal(maFinalRep.json.subjects[0].papers.length, 1);
+  assert.equal(maFinalRep.json.subjects[0].papers[0].annotations.length, 4);
+
+  const imgFetch = await fetch(`${base}${maFinalRep.json.subjects[0].papers[0].url}`, {
+    headers: { cookie: adminCookie },
+  });
+  assert.equal(imgFetch.status, 200);
 
   mockGradeDetected = { examNo: "0413", name: "张同学", department: "管理部" };
 });

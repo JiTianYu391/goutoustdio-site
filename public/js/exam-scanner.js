@@ -667,9 +667,9 @@
             name: file.name || "试卷",
             srcCanvas: srcCanvas,
             quad: quad,
-            filter: "magic",
+            filter: "original",
             brightness: 0,
-            contrast: 8,
+            contrast: 0,
             lockA4: false,
             warpedCanvas: null,
             enhancedCanvas: null,
@@ -1143,11 +1143,11 @@
         });
 
         var filters = [
-          { id: "magic", label: "智能增亮（推荐）" },
-          { id: "bw", label: "黑白漂白" },
+          { id: "original", label: "原图高清（AI 推荐）" },
+          { id: "enhance", label: "柔和增亮" },
           { id: "gray", label: "高清灰度" },
-          { id: "enhance", label: "原色增强" },
-          { id: "original", label: "原图矫正" },
+          { id: "magic", label: "强对比文档" },
+          { id: "bw", label: "黑白打印" },
         ];
         var filterBar = el("div", { class: "scanner-filters" },
           filters.map(function (f) {
@@ -1304,7 +1304,13 @@
             var pagesOut = queue.map(function (it, idx) {
               if (!it.warpedCanvas) it.warpedCanvas = warpPerspective(it.srcCanvas, it.quad, it.lockA4);
               if (!it.enhancedCanvas) it.enhancedCanvas = applyFilter(it.warpedCanvas, it.filter, it.brightness, it.contrast);
-              return { pageNo: idx + 1, imageData: it.enhancedCanvas.toDataURL("image/jpeg", 0.86) };
+              return {
+                pageNo: idx + 1,
+                imageData: it.enhancedCanvas.toDataURL("image/jpeg", 0.90),
+                width: it.enhancedCanvas.width,
+                height: it.enhancedCanvas.height,
+                filterMode: it.filter,
+              };
             });
             cleanup();
             if (opts.onExtract) opts.onExtract(pagesOut);
@@ -1426,7 +1432,42 @@
     dlg.showModal();
   }
 
-  /* ---------- 7. AI 扫错/模糊匹配考生身份核对确认弹窗 ---------- */
+  /* ---------- 7. 高清原图压缩 & AI 扫错/自动认人确认弹窗 ---------- */
+  function compressCleanPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var maxSide = 2000;
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        if (!w || !h) return reject(new Error("无法读取图片尺寸"));
+        var scale = Math.min(1, maxSide / Math.max(w, h));
+        var cw = Math.max(1, Math.round(w * scale));
+        var ch = Math.max(1, Math.round(h * scale));
+        var canvas = document.createElement("canvas");
+        canvas.width = cw;
+        canvas.height = ch;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.drawImage(img, 0, 0, cw, ch);
+        resolve({
+          imageData: canvas.toDataURL("image/jpeg", 0.90),
+          width: cw,
+          height: ch,
+          filterMode: "original",
+        });
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        reject(new Error("图片解码失败：" + (file && file.name ? file.name : "")));
+      };
+      img.src = url;
+    });
+  }
+
   function openMatchConfirmDialog(aiRes, reqPayload) {
     var el = GS.el, icon = GS.icon;
     var label = function (text, kind) {
@@ -1466,10 +1507,16 @@
         var name = selectedLabelMap[selectedUserId] || (selectedUserId ? ("ID " + selectedUserId) : "所选成员");
         okBtn.textContent = selectedUserId ? ("确认归入「" + name + "」并保存") : "请选择目标成员";
         okBtn.disabled = !selectedUserId;
-        var willMove = !!(selectedUserId && aiRes.sourceUserId && selectedUserId !== aiRes.sourceUserId && aiRes.pageIds && aiRes.pageIds.length);
-        moveNotice.hidden = !willMove;
-        if (willMove) {
-          moveNotice.textContent = "提示：确认后将自动把本次扫描的 " + aiRes.pageIds.length + " 页原卷移交至「" + name + "」名下并写入成绩与错题本，原选中考生不受影响。";
+        var stagedCount = aiRes.stagedPages ? aiRes.stagedPages.length : 0;
+        var existingCount = aiRes.pageIds ? aiRes.pageIds.length : 0;
+        if (stagedCount && selectedUserId) {
+          moveNotice.hidden = false;
+          moveNotice.textContent = "提示：确认后将把本次扫描的 " + stagedCount + " 页原卷正式保存至「" + name + "」名下，并写入红笔批注、成绩与错题本。";
+        } else if (existingCount && selectedUserId && aiRes.sourceUserId && selectedUserId !== aiRes.sourceUserId) {
+          moveNotice.hidden = false;
+          moveNotice.textContent = "提示：确认后将自动把这 " + existingCount + " 页原卷移交至「" + name + "」名下并写入成绩与错题本，原选中考生不受影响。";
+        } else {
+          moveNotice.hidden = true;
         }
       }
 
@@ -1583,6 +1630,9 @@
         if (doneOnce) return;
         doneOnce = true;
         cleanup();
+        if (aiRes.stagedPages && aiRes.stagedPages.length) {
+          GS.api("POST", "/api/exam/admin/ai-grade/discard", { stagedPages: aiRes.stagedPages }).catch(function () {});
+        }
         resolve({ confirmed: false, cancelled: true, grading: aiRes.grading });
       }
 
@@ -1591,15 +1641,18 @@
       okBtn.addEventListener("click", function () {
         if (!selectedUserId) return GS.toast("请先选择要归入的成员");
         var done = GS.busy(okBtn, "正在归档保存…");
-        GS.api("POST", "/api/exam/admin/ai-grade/confirm", {
+        var confirmPayload = {
           examId: reqPayload.examId,
           subjectId: reqPayload.subjectId,
           targetUserId: selectedUserId,
           sourceUserId: aiRes.sourceUserId,
-          pageIds: aiRes.pageIds,
           applyAnnotations: reqPayload.applyAnnotations !== false,
           grading: aiRes.grading,
-        }).then(function (r) {
+        };
+        if (aiRes.stagedPages && aiRes.stagedPages.length) confirmPayload.stagedPages = aiRes.stagedPages;
+        if (aiRes.pageIds && aiRes.pageIds.length) confirmPayload.pageIds = aiRes.pageIds;
+
+        GS.api("POST", "/api/exam/admin/ai-grade/confirm", confirmPayload).then(function (r) {
           if (doneOnce) return;
           doneOnce = true;
           cleanup();
@@ -1607,6 +1660,7 @@
             confirmed: true,
             targetUser: r.targetUser,
             grading: r.grading,
+            createdPages: r.createdPages || [],
             reassignedPapers: r.reassignedPapers || 0,
           });
         }).catch(function (err) {
@@ -1633,11 +1687,27 @@
     });
   }
 
+  function runSmartScanWithConfirm(reqPayload) {
+    return GS.api("POST", "/api/exam/admin/smart-scan-grade", reqPayload).then(function (r) {
+      if (!r.needsConfirmation) {
+        return {
+          confirmed: true,
+          targetUser: r.targetUser || null,
+          grading: r.grading,
+          pages: r.pages || [],
+        };
+      }
+      return openMatchConfirmDialog(r, reqPayload);
+    });
+  }
+
   window.ExamScanner = {
     open: open,
     detectDocumentQuad: detectDocumentQuad,
     warpPerspective: warpPerspective,
     applyFilter: applyFilter,
+    compressCleanPhoto: compressCleanPhoto,
     runAiGradeWithConfirm: runAiGradeWithConfirm,
+    runSmartScanWithConfirm: runSmartScanWithConfirm,
   };
 })();
