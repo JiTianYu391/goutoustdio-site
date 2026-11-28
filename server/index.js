@@ -15,6 +15,7 @@ import ticketRoutes from "./routes/tickets.js";
 import adminRoutes from "./routes/admin.js";
 import examRoutes from "./routes/exam.js";
 import oauthRoutes, { oauthCleanup, SCOPES } from "./oauth.js";
+import { attachGameServer } from "./game/index.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8080;
@@ -30,7 +31,7 @@ app.use(helmet({
     directives: {
       // Cloudflare 会自动注入 Web Analytics 脚本（含一段内联初始化），这里放行它和截图所在的 raw.githubusercontent.com
       "script-src": ["'self'", "https://static.cloudflareinsights.com", "'sha256-f3hdOU1QscqxHyyMkQCCyaLeNK4GEvqsgMC25eSfQ+k='"],
-      "connect-src": ["'self'", "https://cloudflareinsights.com"],
+      "connect-src": ["'self'", "https://cloudflareinsights.com", "ws:", "wss:"],
       "img-src": ["'self'", "data:", "blob:", "https://raw.githubusercontent.com"],
       "upgrade-insecure-requests": null,
     },
@@ -107,6 +108,7 @@ app.get("/docs/:page", (req, res, next) => {
 
 const page = (file) => (_req, res) => res.sendFile(path.join(pub, file));
 for (const p of ["login", "register", "account", "verify", "forgot", "reset", "admin"]) app.get(`/${p}`, page(`${p}.html`));
+app.get(["/game", "/game/"], page("game/index.html"));
 app.get(["/exam", "/exam/:tab"], page("exam.html"));
 app.get(["/support", "/support/:id"], page("support.html"));
 app.get("/u/:username", page("user.html"));
@@ -170,5 +172,6 @@ export { app };
 
 // 只有直接 `node server/index.js` 时才监听；测试里 import 本文件拿到 app 自己起端口
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  app.listen(PORT, "0.0.0.0", () => console.log(`listening on :${PORT}`));
+  const server = app.listen(PORT, "0.0.0.0", () => console.log(`listening on :${PORT}`));
+  attachGameServer(server);
 }

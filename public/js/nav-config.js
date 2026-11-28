@@ -57,6 +57,12 @@
       match: ["/docs"],
     },
     {
+      id: "game",
+      label: "游戏",
+      href: "/game",
+      match: ["/game"],
+    },
+    {
       id: "exam",
       label: "内部考试",
       href: "/exam",

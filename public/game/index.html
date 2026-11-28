@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="GS 仓库枪战：GoutouStdio 出品的浏览器 1v1 低多边形 3D 射击游戏。集显可玩，无需下载，服务器权威联机。">
+  <title>GS 仓库枪战 · GoutouStdio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d97757'/%3E%3Ctext x='32' y='44' font-size='34' font-weight='700' text-anchor='middle' fill='%23faf9f5' font-family='Georgia,serif'%3EG%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/tokens.css?v=87f53e71">
+  <link rel="stylesheet" href="/game/game.css?v=3">
+</head>
+<body class="theme-dark game-page">
+  <div id="app">
+    <canvas id="scene" aria-label="3D 游戏画面"></canvas>
+    <div class="scene-vignette" aria-hidden="true"></div>
+
+    <section id="boot" class="screen screen-center">
+      <div class="boot-card">
+        <div class="brand-mark-row">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>GoutouStdio</span>
+        </div>
+        <h1>GS <span>仓库枪战</span></h1>
+        <p id="boot-status">正在连接游戏服务器…</p>
+        <div class="boot-bar" aria-hidden="true"><i></i></div>
+        <button id="boot-retry" class="gbtn gbtn-small hidden" type="button" style="margin-bottom:1rem">重新连接</button>
+        <a class="quiet-link" href="/">返回官网</a>
+      </div>
+    </section>
+
+    <section id="menu" class="screen hidden" aria-label="游戏大厅">
+      <div class="menu-wrap">
+        <header class="menu-head">
+          <a class="brand-link" href="/"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>GoutouStdio</a>
+          <span class="tag">实验游戏 / GS STRIKE</span>
+        </header>
+
+        <div class="menu-grid">
+          <div class="menu-hero">
+            <p class="eyebrow">BROWSER 1V1 TACTICAL SHOOTER</p>
+            <h1><span class="grad">GS</span> 仓库枪战</h1>
+            <p class="lede">一张仓库地图，两个人，先到 10 杀。程序化材质 + 日光阴影 + 服务器权威联机，核显老笔记本也能开打；右键开镜，第三把枪是狙击。</p>
+            <ul class="feat">
+              <li><b>零下载</b><span>浏览器直接开局</span></li>
+              <li><b>双人联机</b><span>房间码邀请好友</span></li>
+              <li><b>低配友好</b><span>合并几何 · 自适应分辨率</span></li>
+            </ul>
+            <div class="menu-stats">
+              <div><strong>1v1</strong><span>对局人数</span></div>
+              <div><strong>30Hz</strong><span>服务器 tick</span></div>
+              <div><strong>10</strong><span>击杀获胜</span></div>
+            </div>
+          </div>
+
+          <div class="menu-panel">
+            <label class="field">
+              <span>你的代号</span>
+              <input id="name-input" maxlength="12" autocomplete="nickname" spellcheck="false" placeholder="玩家">
+            </label>
+
+            <div class="menu-actions">
+              <button id="btn-quick" class="gbtn gbtn-primary" type="button">
+                <span>快速匹配</span><small>找一名在线对手</small>
+              </button>
+              <button id="btn-create" class="gbtn" type="button">
+                <span>创建房间</span><small>生成邀请码</small>
+              </button>
+              <button id="btn-practice" class="gbtn" type="button">
+                <span>单人练习</span><small>和机器人对枪</small>
+              </button>
+            </div>
+
+            <form id="join-form" class="join-row">
+              <input id="join-code" maxlength="6" placeholder="输入房间码" autocomplete="off" spellcheck="false" aria-label="房间码">
+              <button class="gbtn gbtn-small" type="submit">加入</button>
+            </form>
+
+            <details class="settings">
+              <summary>设置与按键</summary>
+              <div class="settings-grid">
+                <label>鼠标灵敏度 <input id="set-sens" type="range" min="0.4" max="3" step="0.05" value="1"></label>
+                <label>视野 FOV <input id="set-fov" type="range" min="70" max="100" step="1" value="82"></label>
+                <label>画质
+                  <select id="set-quality">
+                    <option value="auto">自动（推荐）</option>
+                    <option value="high">高</option>
+                    <option value="low">性能优先</option>
+                  </select>
+                </label>
+                <label>音量 <input id="set-volume" type="range" min="0" max="1" step="0.05" value="0.6"></label>
+                <label class="wide">辅助瞄准
+                  <select id="set-assist">
+                    <option value="off">关闭</option>
+                    <option value="weak">弱</option>
+                    <option value="standard" selected>标准（类似和平精英）</option>
+                    <option value="strong">强</option>
+                  </select>
+                </label>
+              </div>
+              <p class="settings-note">辅助瞄准只在开镜或开火、准星靠近可见敌人时轻微拉枪并降低灵敏度；可随时关闭。</p>
+              <div class="keys">
+                <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span>
+                <span><kbd>左键</kbd> 开火</span>
+                <span><kbd>右键</kbd> 开镜</span>
+                <span><kbd>R</kbd> 换弹</span>
+                <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 换枪</span>
+                <span><kbd>Ctrl</kbd> 蹲下</span>
+                <span><kbd>Shift</kbd> 静步</span>
+                <span><kbd>Space</kbd> 跳跃</span>
+                <span><kbd>Tab</kbd> 计分板</span>
+                <span><kbd>Esc</kbd> 暂停</span>
+              </div>
+            </details>
+
+            <p class="menu-foot">需要键盘鼠标 · 推荐 Chrome / Edge · 好友各开一个窗口即可对局</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="room" class="screen hidden" aria-label="房间">
+      <div class="room-wrap">
+        <p class="eyebrow">LOBBY</p>
+        <h1>房间 <span id="room-code" class="room-code">-----</span></h1>
+        <p id="room-status" class="room-status">正在准备房间…</p>
+        <div id="room-seats" class="room-seats"></div>
+        <div id="room-countdown" class="room-countdown" aria-live="polite"></div>
+        <div class="room-actions">
+          <button id="btn-copy-link" class="gbtn gbtn-primary gbtn-small" type="button">复制邀请链接</button>
+          <button id="btn-cancel-room" class="gbtn gbtn-small" type="button">离开房间</button>
+        </div>
+        <p class="room-hint">把房间码发给朋友，对方加入后自动开始；先到 10 杀获胜。掉线后可回到本页续上对局。</p>
+      </div>
+    </section>
+
+    <div id="hud" class="hud hidden" aria-hidden="true">
+      <div class="minimap-wrap" aria-hidden="true">
+        <canvas id="minimap" width="240" height="240"></canvas>
+      </div>
+
+      <div id="scope" class="scope" aria-hidden="true">
+        <div class="scope-vignette"></div>
+        <div class="scope-ring"></div>
+        <div class="scope-cross"><i class="sh"></i><i class="sv"></i><i class="sdot"></i></div>
+        <div class="scope-mildot a"></div><div class="scope-mildot b"></div><div class="scope-mildot c"></div><div class="scope-mildot d"></div>
+      </div>
+      <div id="ads-dot" class="ads-dot" aria-hidden="true"><i></i></div>
+      <div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div>
+      <div id="damage-numbers" class="damage-numbers" aria-hidden="true"></div>
+
+      <div class="hud-top">
+        <div class="scorebox">
+          <div class="score-line">
+            <span id="score-you" class="score-num you">0</span>
+            <span class="score-sep">:</span>
+            <span id="score-them" class="score-num them">0</span>
+          </div>
+          <div class="score-meta"><span id="name-you">你</span><span>先到 <b id="score-target">10</b> 杀</span><span id="name-them">对手</span></div>
+          <div class="score-bar"><i id="score-fill-you"></i><i id="score-fill-them"></i></div>
+        </div>
+        <div class="netbox">
+          <span id="ping-label">-- ms</span>
+          <span id="quality-label">自动</span>
+        </div>
+      </div>
+
+      <div id="killfeed" class="killfeed" aria-live="polite"></div>
+
+      <div id="crosshair" class="crosshair">
+        <i class="ch t"></i><i class="ch r"></i><i class="ch b"></i><i class="ch l"></i><i class="ch dot"></i>
+      </div>
+      <div id="hitmarker" class="hitmarker"><i></i><i></i><i></i><i></i></div>
+
+      <div class="hud-bottom">
+        <div class="vital">
+          <div class="vital-row">
+            <svg class="icon heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5C19 15.6 12 20 12 20z"/></svg>
+            <span id="hp-value">100</span>
+          </div>
+          <div class="meter"><i id="hp-fill" class="hp-fill"></i></div>
+          <span class="vital-label">生命值</span>
+        </div>
+        <div class="ammo">
+          <div class="weapon-name" id="weapon-name">AR-15</div>
+          <div class="ammo-row">
+            <span id="ammo-mag">30</span><small>/ <span id="ammo-reserve">90</span></small>
+          </div>
+          <div class="meter ammo-meter"><i id="ammo-fill"></i></div>
+          <span id="reload-label" class="reload-label">R 换弹</span>
+        </div>
+      </div>
+
+      <div id="center-status" class="center-status"></div>
+      <div id="damage-flash" class="damage-flash"></div>
+      <div id="low-hp" class="low-hp"></div>
+
+      <div id="scoreboard" class="scoreboard hidden">
+        <div class="scoreboard-head"><span>代号</span><span>击杀</span><span>死亡</span><span>延迟</span></div>
+        <div id="scoreboard-rows"></div>
+        <p class="scoreboard-foot">按住 Tab 查看 · 先到 <span id="scoreboard-target">10</span> 杀</p>
+      </div>
+
+      <div id="hint-bar" class="hint-bar">WASD 移动 · 左键开火 · 右键开镜 · R 换弹 · 1/2/3 换枪 · Ctrl 蹲 · Space 跳 · Tab 计分板</div>
+    </div>
+
+    <div id="overlay" class="overlay hidden">
+      <div class="overlay-panel" id="overlay-panel">
+        <p class="eyebrow" id="overlay-eyebrow">TACTICAL PAUSE</p>
+        <h2 id="overlay-title">已暂停</h2>
+        <p id="overlay-text">鼠标已解锁。对局仍在继续，点击继续回到战斗。</p>
+        <div id="overlay-score" class="overlay-score hidden"></div>
+        <div class="overlay-actions">
+          <button id="btn-overlay-primary" class="gbtn gbtn-primary" type="button">继续游戏</button>
+          <button id="btn-overlay-secondary" class="gbtn" type="button">退出对局</button>
+        </div>
+        <details class="settings overlay-settings">
+          <summary>设置与按键</summary>
+          <div class="settings-grid">
+            <label>鼠标灵敏度 <input id="set-sens-2" type="range" min="0.4" max="3" step="0.05" value="1"></label>
+            <label>视野 FOV <input id="set-fov-2" type="range" min="70" max="100" step="1" value="82"></label>
+            <label>画质
+              <select id="set-quality-2">
+                <option value="auto">自动（推荐）</option>
+                <option value="high">高</option>
+                <option value="low">性能优先</option>
+              </select>
+            </label>
+            <label>音量 <input id="set-volume-2" type="range" min="0" max="1" step="0.05" value="0.6"></label>
+            <label class="wide">辅助瞄准
+              <select id="set-assist-2">
+                <option value="off">关闭</option>
+                <option value="weak">弱</option>
+                <option value="standard" selected>标准（类似和平精英）</option>
+                <option value="strong">强</option>
+              </select>
+            </label>
+          </div>
+          <p class="settings-note">辅助瞄准只在开镜或开火、准星靠近可见敌人时轻微拉枪并降低灵敏度；可随时关闭。</p>
+          <div class="keys">
+            <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span>
+            <span><kbd>左键</kbd> 开火</span>
+            <span><kbd>右键</kbd> 开镜</span>
+            <span><kbd>R</kbd> 换弹</span>
+            <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 换枪</span>
+            <span><kbd>Ctrl</kbd> 蹲下</span>
+            <span><kbd>Shift</kbd> 静步</span>
+            <span><kbd>Space</kbd> 跳跃</span>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+  </div>
+
+  <script type="module" src="/game/js/main.js?v=3"></script>
+</body>
+</html>

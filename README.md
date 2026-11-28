@@ -47,6 +47,18 @@ GoutouStdio 小组官方网站，部署在 FadeHost，域名 [goutoustdio.top](h
 
 文档页：`/docs`、`/docs/oauth`、`/docs/tokens`、`/docs/recharge`、`/docs/webhooks`、`/docs/errors`、`/docs/example`。测试：`npm test`（OAuth 全流程 + 文档路由）。
 
+## 游戏：GS 仓库枪战（/game）
+
+`/game` 是站内独立入口，一个浏览器里的 1v1 战术射击，桌面键鼠，核显可玩。
+
+- **玩法**：1v1 死斗，先到 10 杀；步枪 / 手枪 / 狙击枪三把武器，右键开镜，R 换弹，1/2/3 换枪，Ctrl 蹲、Space 跳、Tab 计分板、Esc 暂停。
+- **联机**：房间码邀请、快速匹配、单人练习（机器人）。服务器权威模拟 30Hz，快照 20Hz，客户端做预测 / 回放 / 插值 / 延迟补偿；断线保留席位 15 秒，重连自动续上，超时由机器人接管。
+- **辅助**：小地图只显示可见或刚开过火的敌人；辅助拉枪（开镜/开火、目标可见且准星进入小角度气泡时轻微旋转拉枪 + 灵敏度减速）可在设置中选关闭 / 弱 / 标准 / 强。
+- **低配**：低多边形 + 程序化材质（混凝土 / 木箱 / 金属），日光阴影一次烘焙，自适应渲染分辨率，不依赖外部模型和音频资源。
+- **代码**：页面与客户端在 `public/game/`，规则/地图/移动共用 `public/game/js/shared.js`（服务器也 import 同一份），服务端在 `server/game/`，WebSocket 路径 `/ws/game`，入口在 `server/index.js` 的 `attachGameServer`。
+- **依赖**：新增 `ws`。部署需要宿主支持 WebSocket 升级；FadeHost / Cloudflare 反代下可用，免费实例休眠导致断开时客户端会自动重连。
+- **测试**：`test/game.test.js` 覆盖 HTTP 入口、房间/匹配、快照、移动、开镜/狙击与掉线机器人接管。
+
 ## 大文件说明
 
 下载用的大文件（两个 Uinxed ISO、OTA 更新包 zip）和两张截图因为是二进制文件，没有放进这个仓库，相关链接指向原 PySpOS 仓库的 raw 地址：
