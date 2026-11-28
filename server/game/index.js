@@ -383,6 +383,8 @@ function onMessage(c, data) {
         reload: !!msg.reload,
         aim: !!msg.aim,
         slot: msg.slot === 1 || msg.slot === 2 || msg.slot === 3 ? msg.slot : 0,
+        // 开火时客户端画面上敌人所处的服务器模拟时间，用于精确延迟补偿（由 room 夹到合法范围）
+        rt: Number.isFinite(Number(msg.rt)) ? Number(msg.rt) : null,
       });
       break;
     }

@@ -31,6 +31,8 @@ import {
 const BOT_NAME = "训练机器人";
 const DISCONNECT_GRACE = 15000;
 const MAX_QUEUED_INPUTS = 6;
+// 延迟补偿最多回退 0.5s：覆盖 ~300ms ping + 100ms 插值，防止高延迟 / 伪造时间戳“打过去”。
+const MAX_UNLAG = 0.5;
 
 let botSeqSeed = 100000;
 
@@ -340,7 +342,7 @@ export class Room {
 
     if (this.state !== "waiting") {
       const since = this.time - this.lastSnapshotAt;
-      if (since >= SNAPSHOT_DT) this.pushSnapshot();
+      if (since >= SNAPSHOT_DT - 1e-6) this.pushSnapshot();
     }
 
     if (!this.humans().length && !this.emptySince) this.emptySince = now;
@@ -415,7 +417,7 @@ export class Room {
       const w = WEAPONS[p.weapon];
       const edge = w.auto ? true : !p.prevFire;
       p.prevFire = true;
-      if (edge) this.tryFire(p, frame.seq);
+      if (edge) this.tryFire(p, frame.seq, frame.rt);
     } else {
       p.prevFire = false;
     }
@@ -444,7 +446,7 @@ export class Room {
     this.pushEvent({ type: "reloaded", by: p.slot, weapon: p.weapon });
   }
 
-  tryFire(p, seq) {
+  tryFire(p, seq, renderTime = null) {
     if (!p.alive || this.state !== "live") return;
     if (this.time < p.nextFireAt || this.time < p.readyAt) return;
     if (p.reloadEnd > 0 && this.time < p.reloadEnd) return;
@@ -472,9 +474,16 @@ export class Room {
 
     const enemy = this.other(p.slot);
     if (enemy && enemy.alive) {
-      const rewind = clamp((p.rtt || 0.08) / 2 + 0.1, 0.04, 0.28);
-      const old = this.positionAt(enemy.slot, this.time - rewind);
-      const targetPos = old || enemy;
+      // 延迟补偿（Source / Overwatch 做法）：客户端随开火帧上报“画面里敌人所处的服务器时间”，
+      // 服务器回退到那一刻并在两帧历史之间插值，命中判定 = 玩家屏幕上看到的位置。
+      // 人机看到的就是当前状态，不回退；旧客户端没上报时退回 RTT 估算。
+      let targetPos = enemy;
+      if (!p.bot) {
+        const t = Number.isFinite(renderTime)
+          ? clamp(renderTime, this.time - MAX_UNLAG, this.time)
+          : this.time - clamp((p.rtt || 0.08) / 2 + 0.1, 0.04, 0.28);
+        targetPos = this.positionAt(enemy.slot, t) || enemy;
+      }
       const res = raycastPlayer(
         eye.x, eye.y, eye.z, dir.x, dir.y, dir.z,
         { ...targetPos, crouch: targetPos.crouch }, endT
@@ -578,15 +587,34 @@ export class Room {
     while (this.history.length > TICK_RATE * 2) this.history.shift();
   }
 
+  // 取 t 时刻的位置：在前后两条历史之间线性插值（旧版直接取前一帧，最多差 33ms）。
   positionAt(slot, t) {
+    let after = null;
+    let afterT = 0;
     for (let i = this.history.length - 1; i >= 0; i--) {
       const entry = this.history[i];
-      if (entry.t > t) continue;
       const found = entry.slots.find((s) => s.slot === slot);
-      if (found) return found;
-      if (entry.t < t - 0.35) break;
+      if (!found) continue;
+      if (entry.t <= t) {
+        if (!after || afterT - entry.t < 1e-6) return found;
+        // 重生瞬移不插值
+        if (Math.hypot(after.x - found.x, after.z - found.z) > 3 || found.alive !== after.alive) {
+          return t - entry.t < afterT - t ? found : after;
+        }
+        const k = (t - entry.t) / (afterT - entry.t);
+        return {
+          slot,
+          x: found.x + (after.x - found.x) * k,
+          y: found.y + (after.y - found.y) * k,
+          z: found.z + (after.z - found.z) * k,
+          crouch: k < 0.5 ? found.crouch : after.crouch,
+          alive: found.alive,
+        };
+      }
+      after = found;
+      afterT = entry.t;
     }
-    return null;
+    return after;
   }
 
   pushEvent(ev) {
@@ -596,7 +624,7 @@ export class Room {
 
   pushSnapshot(force = false) {
     if (this.state === "waiting") return;
-    if (!force && this.time - this.lastSnapshotAt < SNAPSHOT_DT) return;
+    if (!force && this.time - this.lastSnapshotAt < SNAPSHOT_DT - 1e-6) return;
     this.lastSnapshotAt = this.time;
     const events = this.pendingEvents;
     this.pendingEvents = [];
@@ -607,6 +635,7 @@ export class Room {
       p.conn.send({
         t: "snapshot",
         now: Date.now() / 1000,
+        st: +this.time.toFixed(4),
         state: this.state,
         countdown: this.state === "countdown" ? Math.max(0, +(this.countdownEnd - this.time).toFixed(2)) : 0,
         score: [this.seats[0]?.kills || 0, this.seats[1]?.kills || 0],
@@ -723,7 +752,7 @@ export class Room {
       } else {
         if (this.time > bs.strafeUntil) {
           bs.strafe = Math.random() < 0.5 ? -1 : 1;
-          bs.strafeUntil = this.time + 0.45 + Math.random() * 0.8;
+          bs.strafeUntil = this.time + 0.8 + Math.random() * 1.1;
         }
         mx = -nz * bs.strafe + nx * 0.22;
         mz = nx * bs.strafe + nz * 0.22;
@@ -775,6 +804,8 @@ export class Room {
 
     if (p.reloadEnd <= 0 && p.ammo[p.weapon].mag <= 0) this.startReload(p);
     if (p.reloadEnd > 0 && this.time >= p.reloadEnd) this.finishReload(p);
+
+    if (wantFire || this.time < bs.burstEnd) keys |= KEY.WALK;
 
     const seq = ++p.botSeq;
     stepPlayer(p, { keys, yaw: p.yaw, pitch: p.pitch }, TICK_DT);

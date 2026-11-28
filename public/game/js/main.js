@@ -121,6 +121,7 @@ class Game {
     this.accumulator = 0;
     this.remoteView = null;
     this.buf = [];
+    this.remoteRenderSt = NaN;
     this.clockOffset = 0;
     this.offsetReady = false;
     this.lastSnapshot = null;
@@ -490,6 +491,7 @@ class Game {
     this.local = null;
     this.history = [];
     this.buf = [];
+    this.remoteRenderSt = NaN;
     this.seq = 0;
     this.localTime = 0;
     this.accumulator = 0;
@@ -900,7 +902,7 @@ class Game {
     const now = performance.now() / 1000;
     this.lastSnapshot = msg;
     this.lastSnapshotAt = now;
-    this.buf.push({ recv: now, now: msg.now || now, players: msg.players || [], you: msg.you });
+    this.buf.push({ recv: now, now: msg.now || now, st: Number(msg.st), players: msg.players || [], you: msg.you });
     if (this.buf.length > 30) this.buf.shift();
     if (!this.offsetReady) {
       this.clockOffset = now - (msg.now || now);
@@ -1044,6 +1046,7 @@ class Game {
     this.remoteView = null;
     this.history = [];
     this.buf = [];
+    this.remoteRenderSt = NaN;
     this.offsetReady = false;
     this.seq = 0;
     this.accumulator = 0;
@@ -1268,6 +1271,7 @@ class Game {
       reload: frame.reload,
       aim: frame.aim,
       slot: frame.slot,
+      rt: frame.fire && Number.isFinite(this.remoteRenderSt) ? +this.remoteRenderSt.toFixed(4) : undefined,
     });
   }
 
@@ -1401,6 +1405,8 @@ class Game {
     if (!p0 || !p1) return null;
     const span = Math.max(0.001, (b.now - a.now));
     const t = Math.max(0, Math.min(1, (target - a.now) / span));
+    // 记下画面里敌人对应的服务器模拟时间，开火时上报给服务器做精确延迟补偿。
+    if (Number.isFinite(a.st) && Number.isFinite(b.st)) this.remoteRenderSt = a.st + (b.st - a.st) * t;
     let x = p0.x + (p1.x - p0.x) * t;
     let y = p0.y + (p1.y - p0.y) * t;
     let z = p0.z + (p1.z - p0.z) * t;

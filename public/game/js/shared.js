@@ -5,7 +5,8 @@
 export const PROTOCOL_VERSION = 1;
 export const TICK_RATE = 30;
 export const TICK_DT = 1 / TICK_RATE;
-export const SNAPSHOT_RATE = 20;
+// 每个 tick 都发快照：20Hz 在 30Hz tick 下实际是每 2 帧（66ms）才发一次，远端移动一顿一顿的。
+export const SNAPSHOT_RATE = 30;
 export const SNAPSHOT_DT = 1 / SNAPSHOT_RATE;
 export const KILLS_TO_WIN = 10;
 export const RESPAWN_TIME = 2.6;
@@ -56,10 +57,10 @@ export const WEAPONS = {
     speed: 4.9,
     auto: true,
     spread: 0.0022,
-    moveSpread: 0.03,
-    airSpread: 0.07,
-    shotSpread: 0.0045,
-    maxSpread: 0.075,
+    moveSpread: 0.014,
+    airSpread: 0.05,
+    shotSpread: 0.0028,
+    maxSpread: 0.045,
     kick: 0.011,
     kickYaw: 0.006,
     adsFov: 58,
@@ -80,10 +81,10 @@ export const WEAPONS = {
     speed: 5.6,
     auto: false,
     spread: 0.003,
-    moveSpread: 0.024,
-    airSpread: 0.055,
-    shotSpread: 0.009,
-    maxSpread: 0.06,
+    moveSpread: 0.012,
+    airSpread: 0.04,
+    shotSpread: 0.006,
+    maxSpread: 0.04,
     kick: 0.016,
     kickYaw: 0.008,
     adsFov: 62,
