@@ -10,7 +10,10 @@ const wss = new WebSocketServer({
   maxPayload: 8 * 1024,
   perMessageDeflate: false,
 });
+const INPUT_BURST = 45;
 const rooms = new Map();
+// tick 健康度：弱主机（共享 CPU 的机器人托管等）会让定时器成批延迟，这里记录下来便于判断。
+const tickHealth = { last: 0, gaps: 0, maxGap: 0, busyMax: 0, windowStart: Date.now() };
 const sessions = new Map();
 const ipCounts = new Map();
 const attachedServers = new WeakSet();
@@ -360,11 +363,13 @@ function onMessage(c, data) {
       if (seq <= (p.lastQueuedSeq || 0)) return;
       const nowMs = Date.now();
       if (!p.inputTokensAt) {
-        p.inputTokens = 6;
+        p.inputTokens = INPUT_BURST;
         p.inputTokensAt = nowMs;
       } else {
-        const dt = Math.min(0.5, (nowMs - p.inputTokensAt) / 1000);
-        p.inputTokens = Math.min(6, p.inputTokens + dt * 36);
+        // 长期速率仍限制在 ~36/s（防加速挂），但允许 1.5s 的突发：弱网 / TCP 队头阻塞时
+        // 输入会成批到达，旧版桶容量只有 6，多出来的帧（包括开火）被直接丢掉 → “打了没反应”。
+        const dt = Math.min(2, (nowMs - p.inputTokensAt) / 1000);
+        p.inputTokens = Math.min(INPUT_BURST, p.inputTokens + dt * 36);
         p.inputTokensAt = nowMs;
       }
       if (p.inputTokens < 1) return;
@@ -412,12 +417,30 @@ function onClose(c) {
 }
 
 function tickRooms() {
+  const start = Date.now();
+  if (tickHealth.last) {
+    const gap = start - tickHealth.last;
+    if (gap > 60) tickHealth.gaps++;
+    if (gap > tickHealth.maxGap) tickHealth.maxGap = gap;
+  }
+  tickHealth.last = start;
   for (const room of rooms.values()) {
     try {
       room.update();
     } catch (err) {
       console.error("[game] room tick failed", room.code, err);
     }
+  }
+  const busy = Date.now() - start;
+  if (busy > tickHealth.busyMax) tickHealth.busyMax = busy;
+  if (start - tickHealth.windowStart >= 60000) {
+    if (rooms.size && (tickHealth.gaps || tickHealth.busyMax > 15)) {
+      console.warn(`[game] 过去 60s tick 卡顿 ${tickHealth.gaps} 次（间隔 >60ms），最长间隔 ${tickHealth.maxGap}ms，单次最长耗时 ${tickHealth.busyMax}ms。频繁出现说明主机 CPU 被限流 / 超售。`);
+    }
+    tickHealth.gaps = 0;
+    tickHealth.maxGap = 0;
+    tickHealth.busyMax = 0;
+    tickHealth.windowStart = start;
   }
 }
 
@@ -544,4 +567,10 @@ export function closeGameServer() {
 
 wss.on("connection", connection);
 
-export const gameStats = () => ({ rooms: rooms.size, sessions: sessions.size });
+export const gameStats = () => ({
+  rooms: rooms.size,
+  sessions: sessions.size,
+  tickStalls: tickHealth.gaps,
+  tickMaxGapMs: tickHealth.maxGap,
+  tickBusyMaxMs: tickHealth.busyMax,
+});

@@ -30,9 +30,10 @@ import {
 
 const BOT_NAME = "训练机器人";
 const DISCONNECT_GRACE = 15000;
-const MAX_QUEUED_INPUTS = 6;
+const MAX_QUEUED_INPUTS = 45; // 1.5s：服务器或网络卡一下时不丢输入
 // 延迟补偿最多回退 0.5s：覆盖 ~300ms ping + 100ms 插值，防止高延迟 / 伪造时间戳“打过去”。
 const MAX_UNLAG = 0.5;
+const BOT_REACT = 0.2;
 
 let botSeqSeed = 100000;
 
@@ -333,17 +334,15 @@ export class Room {
     if (elapsed > 0.5) elapsed = 0.5;
     this.acc += elapsed;
     let steps = 0;
-    while (this.acc >= TICK_DT && steps < 6) {
+    // 主机卡顿后补跑最多 10 帧（333ms），并且每补一帧就发一次快照：客户端按模拟时间插值，
+    // 补发的帧能还原中间轨迹，而不是一次跳过去。
+    while (this.acc >= TICK_DT && steps < 10) {
       this.step(TICK_DT);
       this.acc -= TICK_DT;
       steps++;
+      if (this.state !== "waiting" && this.time - this.lastSnapshotAt >= SNAPSHOT_DT - 1e-6) this.pushSnapshot();
     }
-    if (steps === 6) this.acc = 0;
-
-    if (this.state !== "waiting") {
-      const since = this.time - this.lastSnapshotAt;
-      if (since >= SNAPSHOT_DT - 1e-6) this.pushSnapshot();
-    }
+    if (steps === 10) this.acc = 0;
 
     if (!this.humans().length && !this.emptySince) this.emptySince = now;
   }
@@ -384,7 +383,9 @@ export class Room {
 
   humanStep(p) {
     let processed = 0;
-    while (p.inputQueue.length && processed < 2) {
+    // 正常每帧 1~2 个输入；积压时（网络成批到达）最多 4 个，尽快追平且不至于让人“加速”。
+    const budget = p.inputQueue.length > 3 ? 4 : 2;
+    while (p.inputQueue.length && processed < budget) {
       const frame = p.inputQueue.shift();
       if (!frame) continue;
       if (frame.seq > p.lastAck) p.lastAck = frame.seq;
@@ -713,20 +714,31 @@ export class Room {
         dist
       );
       const los = mapT > dist - 0.25;
-      if (los && !bs.hadLos) bs.acquireAt = this.time + 0.55 + (1 - bs.skill) * 0.8;
+      if (los && !bs.hadLos) {
+        // 人类视觉反应约 250ms，再加上判断时间；刚看到时准星偏差大，之后逐渐收敛
+        bs.acquireAt = this.time + 0.45 + (1 - bs.skill) * 0.5 + Math.random() * 0.25;
+        bs.errMag = 0.1 + (1 - bs.skill) * 0.06;
+        bs.errAng = Math.random() * Math.PI * 2;
+      }
       bs.hadLos = los;
 
-      const chestY = enemy.y + (enemy.crouch ? 0.7 : 0.98);
+      // 瞄准用的是 BOT_REACT 秒前看到的位置：对横移目标会自然“跟慢半拍”，像真人一样需要预判
+      const seen = this.positionAt(enemy.slot, this.time - BOT_REACT) || enemy;
+      const sdx = seen.x - p.x;
+      const sdz = seen.z - p.z;
+      const chestY = seen.y + (seen.crouch ? 0.7 : 0.98);
       const chestDy = chestY - eye.y;
-      let wantYaw = Math.atan2(-dx, -dz);
-      let wantPitch = Math.atan2(chestDy, flatDist);
+      let wantYaw = Math.atan2(-sdx, -sdz);
+      let wantPitch = Math.atan2(chestDy, Math.hypot(sdx, sdz) || 0.001);
 
+      // 误差：时间常数约 0.75s 收敛到下限；被打中时会“受惊”放大（类似真人的 aim punch）
       bs.phase += TICK_DT * (2.1 + bs.skill * 2.6);
-      const err = (1.2 - bs.skill) * 0.095;
-      bs.noiseYaw = clamp(bs.noiseYaw + (Math.random() - 0.5) * 1.8 * TICK_DT, -err, err);
-      bs.noisePitch = clamp(bs.noisePitch + (Math.random() - 0.5) * 1.2 * TICK_DT, -err * 0.7, err * 0.7);
-      wantYaw += bs.noiseYaw + Math.sin(bs.phase * 1.7) * err * 0.55;
-      wantPitch += bs.noisePitch + Math.cos(bs.phase * 1.3) * err * 0.35;
+      const floor = 0.03 + (1 - bs.skill) * 0.02;
+      bs.errMag = Math.max(floor, (bs.errMag || floor) * Math.exp(-TICK_DT / 0.75));
+      if (this.time - (p.lastHurtAt || -10) < TICK_DT * 1.5) bs.errMag = Math.min(0.16, bs.errMag + 0.05);
+      bs.errAng = (bs.errAng || 0) + TICK_DT * (1.1 + Math.sin(bs.phase) * 0.6);
+      wantYaw += Math.cos(bs.errAng) * bs.errMag;
+      wantPitch += Math.sin(bs.errAng) * bs.errMag * 0.6;
 
       const turn = (2.8 + bs.skill * 4.2) * TICK_DT;
       p.yaw = wrapAngle(p.yaw + clamp(wrapAngle(wantYaw - p.yaw), -turn, turn));

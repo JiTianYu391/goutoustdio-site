@@ -9,6 +9,7 @@ import { UI } from "./ui.js";
 import { Minimap } from "./minimap.js";
 import {
   TICK_DT,
+  SNAPSHOT_DT,
   WEAPONS,
   KEY,
   PLAYER,
@@ -122,7 +123,16 @@ class Game {
     this.remoteView = null;
     this.buf = [];
     this.remoteRenderSt = NaN;
+    this.stSamples = [];
+    this.stOffset = NaN;
+    this.jitterPeak = 0;
     this.clockOffset = 0;
+    // 按服务器模拟时间(st)插值：时钟基准取最近 2s 内“到得最快”的那一包，抖动越大插值延迟越大
+    this.stSamples = [];
+    this.stOffset = NaN;
+    this.jitterPeak = 0;
+    this.jitterEma = 0;
+    this.interpDelay = 0.1;
     this.offsetReady = false;
     this.lastSnapshot = null;
     this.lastSnapshotAt = 0;
@@ -288,7 +298,7 @@ class Game {
       this.ui.toast(msg.message || "操作失败");
       this.ui.setOnline(this.net.isOpen());
     });
-    this.net.on("rtt", (rtt) => this.ui.setPing(rtt));
+    this.net.on("rtt", (rtt) => this.ui.setPing(rtt, this.jitterEma));
     this.net.on("fatal", (msg) => {
       this.fatal = true;
       this.ui.bootError(msg.message || "客户端版本不匹配，请刷新页面");
@@ -492,6 +502,9 @@ class Game {
     this.history = [];
     this.buf = [];
     this.remoteRenderSt = NaN;
+    this.stSamples = [];
+    this.stOffset = NaN;
+    this.jitterPeak = 0;
     this.seq = 0;
     this.localTime = 0;
     this.accumulator = 0;
@@ -911,6 +924,22 @@ class Game {
       const sample = now - (msg.now || now);
       this.clockOffset = this.clockOffset * 0.985 + sample * 0.015;
     }
+    const st = Number(msg.st);
+    if (Number.isFinite(st)) {
+      const sample = now - st;
+      this.stSamples.push(sample);
+      if (this.stSamples.length > 60) this.stSamples.shift();
+      let min = Infinity;
+      for (const v of this.stSamples) if (v < min) min = v;
+      this.stOffset = min;
+      const jit = sample - min;
+      this.jitterEma = this.jitterEma * 0.92 + jit * 0.08;
+      this.jitterPeak = Math.max(jit, this.jitterPeak * 0.985);
+      // 自适应插值延迟（参考 Source 的 cl_interp_ratio 与 Unity Netcode 的抖动缓冲）：
+      // 至少 1.5 个快照间隔，再加上近期最大抖动；变大要快（防卡顿），变小要慢（防时间回跳）
+      const want = clamp(SNAPSHOT_DT * 1.5 + this.jitterPeak, 0.06, 0.3);
+      this.interpDelay += (want - this.interpDelay) * (want > this.interpDelay ? 0.3 : 0.02);
+    }
 
     const you = msg.you;
     if (msg.state === "countdown") {
@@ -969,7 +998,7 @@ class Game {
 
     this.ui.setScore(msg.score, this.mySlot, this.names, msg.target);
     this.ui.setHealth(you.alive ? you.hp : 0);
-    this.ui.setPing(this.net.rtt);
+    this.ui.setPing(this.net.rtt, this.jitterEma);
     this._handleEvents(msg.events || []);
     this._updateAmmoHud(true);
     if (this.scoreboardVisible) this._renderScoreboard();
@@ -1047,6 +1076,9 @@ class Game {
     this.history = [];
     this.buf = [];
     this.remoteRenderSt = NaN;
+    this.stSamples = [];
+    this.stOffset = NaN;
+    this.jitterPeak = 0;
     this.offsetReady = false;
     this.seq = 0;
     this.accumulator = 0;
@@ -1381,6 +1413,9 @@ class Game {
 
   _sampleRemote(now) {
     if (!this.buf.length) return null;
+    if (Number.isFinite(this.stOffset) && Number.isFinite(this.buf[this.buf.length - 1].st)) {
+      return this._sampleRemoteSt(now);
+    }
     const remoteSlot = 1 - this.mySlot;
     const latest = this.buf[this.buf.length - 1];
     const target = now - this.clockOffset - 0.1;
@@ -1423,6 +1458,66 @@ class Game {
       x, y, z,
       yaw,
       pitch,
+      crouch: !!p1.crouch,
+      aiming: !!p1.aiming,
+      alive: p1.alive !== false,
+      speed: p1.alive ? (p1.speed || 0) : 0,
+      onGround: p1.onGround !== false,
+    };
+  }
+
+  // 按服务器模拟时间插值：快照里的位置和 st 一一对应，服务器卡顿后补发的帧也能还原轨迹；
+  // 偶发晚到最多外推 60ms（按快照里的速度），再晚就停在最新位置，绝不来回跳。
+  _sampleRemoteSt(now) {
+    const remoteSlot = 1 - this.mySlot;
+    const buf = this.buf;
+    const latest = buf[buf.length - 1];
+    let renderSt = now - this.stOffset - this.interpDelay;
+    let a = null;
+    let b = null;
+    let extra = 0;
+    if (renderSt >= latest.st) {
+      a = b = latest;
+      extra = Math.min(0.06, renderSt - latest.st);
+      renderSt = latest.st + extra;
+    } else {
+      for (let i = buf.length - 1; i >= 0; i--) {
+        if (buf[i].st <= renderSt) {
+          a = buf[i];
+          b = buf[i + 1] || buf[i];
+          break;
+        }
+      }
+      if (!a) {
+        a = b = buf[0];
+        renderSt = a.st;
+      }
+    }
+    const pa = a.players.find((p) => p.slot === remoteSlot);
+    const pb = b.players.find((p) => p.slot === remoteSlot);
+    const p0 = pa || pb;
+    const p1 = pb || pa;
+    if (!p0 || !p1) return null;
+    const span = b.st - a.st;
+    const t = span > 1e-6 ? clamp((renderSt - a.st) / span, 0, 1) : 1;
+    let x = p0.x + (p1.x - p0.x) * t;
+    let y = p0.y + (p1.y - p0.y) * t;
+    let z = p0.z + (p1.z - p0.z) * t;
+    if (Math.hypot(p1.x - p0.x, p1.z - p0.z) > 3 || p0.alive !== p1.alive) {
+      x = p1.x;
+      y = p1.y;
+      z = p1.z;
+    } else if (extra > 0 && p1.alive) {
+      x += (p1.vx || 0) * extra;
+      z += (p1.vz || 0) * extra;
+    }
+    this.remoteRenderSt = renderSt;
+    return {
+      slot: remoteSlot,
+      name: p1.name,
+      x, y, z,
+      yaw: lerpAngle(p0.yaw, p1.yaw, t),
+      pitch: p0.pitch + (p1.pitch - p0.pitch) * t,
       crouch: !!p1.crouch,
       aiming: !!p1.aiming,
       alive: p1.alive !== false,

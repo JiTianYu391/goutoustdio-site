@@ -414,10 +414,13 @@ export class UI {
     this.damageTimer = setTimeout(() => el.classList.remove("on"), 130);
   }
 
-  setPing(rtt) {
+  // 延迟 + 快照抖动（类似 Source 的 net_graph）：抖动大说明服务器卡或网络不稳
+  setPing(rtt, jitter = 0) {
     const ms = Math.max(0, Math.round((rtt || 0) * 1000));
-    if (!this._changed("ping", ms)) return;
-    this.el.pingLabel.textContent = `${ms} ms`;
+    const jm = Math.max(0, Math.round((jitter || 0) * 1000));
+    if (!this._changed("ping", `${ms}|${jm}`)) return;
+    this.el.pingLabel.textContent = jm >= 3 ? `${ms} ms ±${jm}` : `${ms} ms`;
+    this.el.pingLabel.title = "延迟 ± 服务器快照抖动";
     this.el.pingLabel.style.color = ms < 80 ? "#a8d08d" : ms < 160 ? "#f2c14e" : "#ff6b57";
   }
 

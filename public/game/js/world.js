@@ -1601,8 +1601,10 @@ export class GameWorld {
     const eye = this.eyeHeight - this.deathMix * (this.eyeHeight - 0.34);
     this.camera.position.set(pos.x + shakeX, pos.y + eye + shakeY, pos.z);
     this.camera.rotation.set(
-      view.pitch + this.punchPitch,
-      view.yaw + this.punchYaw,
+      // 镜头 = 子弹方向：后坐力上跳只作用在枪模上。旧版把 punch 加在镜头上而子弹不含它，
+      // 连射时准星比实际弹道高 ~0.02rad（20m 外约 0.4m），准星压着敌人子弹却打在脚下。
+      view.pitch,
+      view.yaw,
       -this.deathMix * 0.55 + (Math.random() - 0.5) * this.shake * 0.012
     );
     this.camera.updateMatrixWorld();
@@ -1652,7 +1654,7 @@ export class GameWorld {
         lerp(baseZ, adsZ, aim) + kick * 0.07
       );
       this.vmGroup.rotation.set(
-        -dip * 0.55 + kick * 0.08 - switchDip * 0.7,
+        -dip * 0.55 + kick * 0.08 + this.punchPitch * 1.6 - switchDip * 0.7,
         -this.swayX * 2.2 * (1 - aim * 0.6),
         dip * 0.35 + this.swayY * 1.4
       );
