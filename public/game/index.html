@@ -11,7 +11,7 @@
   <title>GS 仓库枪战 · GoutouStdio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d97757'/%3E%3Ctext x='32' y='44' font-size='34' font-weight='700' text-anchor='middle' fill='%23faf9f5' font-family='Georgia,serif'%3EG%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/css/tokens.css?v=87f53e71">
-  <link rel="stylesheet" href="/game/game.css?v=4">
+  <link rel="stylesheet" href="/game/game.css?v=5">
 </head>
 <body class="theme-dark game-page">
   <div id="app">
@@ -242,12 +242,22 @@
       <div id="hint-bar" class="hint-bar">WASD 移动 · 左键开火 · 右键开镜 · R 换弹 · 1/2/3 换枪 · Ctrl 蹲 · Space 跳 · Tab 计分板</div>
     </div>
 
+    <div class="end-grade" aria-hidden="true"></div>
+    <div id="victory" class="victory hidden" aria-live="assertive">
+      <div class="victory-band">
+        <p class="victory-eyebrow" id="victory-eyebrow">MATCH POINT</p>
+        <h2 class="victory-title" id="victory-title">胜利</h2>
+        <p class="victory-sub" id="victory-sub"></p>
+      </div>
+    </div>
+
     <div id="overlay" class="overlay hidden">
       <div class="overlay-panel" id="overlay-panel">
         <p class="eyebrow" id="overlay-eyebrow">TACTICAL PAUSE</p>
         <h2 id="overlay-title">已暂停</h2>
         <p id="overlay-text">鼠标已解锁。对局仍在继续，点击继续回到战斗。</p>
         <div id="overlay-score" class="overlay-score hidden"></div>
+        <div id="overlay-stats" class="overlay-stats hidden"></div>
         <div class="overlay-actions">
           <button id="btn-overlay-primary" class="gbtn gbtn-primary" type="button">继续游戏</button>
           <button id="btn-overlay-secondary" class="gbtn" type="button">退出对局</button>
@@ -292,6 +302,6 @@
     <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
   </div>
 
-  <script type="module" src="/game/js/main.js?v=6"></script>
+  <script type="module" src="/game/js/main.js?v=7"></script>
 </body>
 </html>

@@ -1008,6 +1008,159 @@ kbd {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------- 结束演出 ---------- */
+/* ① 停顿：四周压暗 + HUD 淡出（延迟一点，让最后一枪的命中标记/击杀提示先被看到） */
+.end-grade {
+  position: fixed;
+  inset: 0;
+  z-index: 27;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(120% 85% at 50% 50%, transparent 30%, rgb(8 6 3 / 0.72) 100%),
+    linear-gradient(180deg, rgb(20 14 4 / 0.18), rgb(20 14 4 / 0.32));
+  transition: opacity 600ms ease;
+}
+body.match-ending .end-grade { opacity: 1; }
+body.match-lost .end-grade {
+  background:
+    radial-gradient(120% 85% at 50% 50%, transparent 25%, rgb(4 4 5 / 0.8) 100%),
+    linear-gradient(180deg, rgb(30 6 4 / 0.2), rgb(8 8 9 / 0.42));
+}
+.hud { transition: opacity 450ms ease; }
+body.match-ending .hud { opacity: 0; transition-delay: 350ms; }
+
+/* ② 大横幅：中间向两侧展开 → 标题字距收拢 + 扫光 → 副标题 */
+.victory {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.victory-band {
+  position: relative;
+  width: 100%;
+  padding: clamp(1.2rem, 3vw, 2rem) 1rem clamp(1rem, 2.6vw, 1.7rem);
+  text-align: center;
+  background: linear-gradient(90deg, transparent, rgb(14 12 9 / 0.82) 20%, rgb(14 12 9 / 0.82) 80%, transparent);
+  clip-path: inset(0 50% 0 50%);
+}
+.victory-band::before, .victory-band::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gs-accent), transparent);
+  transform: scaleX(0);
+}
+.victory-band::before { top: 0; }
+.victory-band::after { bottom: 0; }
+.victory-eyebrow {
+  margin: 0 0 0.4rem;
+  font-family: var(--gs-mono);
+  font-size: clamp(0.62rem, 1.4vw, 0.8rem);
+  letter-spacing: 0.4em;
+  color: rgb(243 238 229 / 0.7);
+  opacity: 0;
+}
+.victory-title {
+  margin: 0;
+  font-size: clamp(3rem, 12vw, 7.5rem);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: transparent;
+  background: linear-gradient(100deg, var(--gs-accent) 35%, #fff4d6 50%, var(--gs-accent) 65%);
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 28px rgb(245 184 61 / 0.35));
+  opacity: 0;
+}
+.victory-sub {
+  margin: 0.7rem 0 0;
+  font-size: clamp(0.8rem, 1.8vw, 1rem);
+  color: var(--gs-ink);
+  opacity: 0;
+}
+.victory.on .victory-band { animation: band-open 520ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+.victory.on .victory-band::before,
+.victory.on .victory-band::after { animation: line-grow 700ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms forwards; }
+.victory.on .victory-eyebrow { animation: fade-up 420ms ease 260ms forwards; }
+.victory.on .victory-title {
+  animation:
+    title-in 760ms cubic-bezier(0.16, 1, 0.3, 1) 160ms forwards,
+    shine 1100ms ease-out 620ms forwards;
+}
+.victory.on .victory-sub { animation: fade-up 420ms ease 720ms forwards; }
+.victory.lose .victory-band::before, .victory.lose .victory-band::after { background: linear-gradient(90deg, transparent, var(--gs-enemy), transparent); }
+.victory.lose .victory-title {
+  background: none;
+  color: #e9675a;
+  filter: drop-shadow(0 0 22px rgb(255 80 60 / 0.25));
+}
+.victory.lose.on .victory-title { animation: title-in-lose 900ms cubic-bezier(0.16, 1, 0.3, 1) 160ms forwards; }
+.victory.out { animation: victory-out 340ms ease forwards; }
+
+@keyframes band-open { to { clip-path: inset(0 0 0 0); } }
+@keyframes line-grow { to { transform: scaleX(1); } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes title-in {
+  from { opacity: 0; letter-spacing: 0.55em; transform: scale(1.12); }
+  to { opacity: 1; letter-spacing: 0.08em; transform: none; }
+}
+@keyframes title-in-lose {
+  from { opacity: 0; letter-spacing: 0.3em; transform: translateY(-8px); }
+  to { opacity: 1; letter-spacing: 0.08em; transform: none; }
+}
+@keyframes shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes victory-out { to { opacity: 0; transform: scale(1.04); } }
+
+/* ③ 结算面板：上滑 + 逐项出现，按钮最后出现，ready 之前不可点 */
+.overlay-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 1.1rem;
+}
+.overlay-stats div {
+  padding: 0.55rem 0.3rem 0.5rem;
+  background: rgb(255 240 215 / 0.04);
+  border: 1px solid var(--gs-line);
+  border-radius: 0.45rem;
+}
+.overlay-stats b { display: block; font-family: var(--gs-mono); font-size: 1.15rem; font-weight: 700; color: var(--gs-ink); }
+.overlay-stats span { display: block; margin-top: 0.2rem; font-size: 0.62rem; letter-spacing: 0.08em; color: #8f897f; }
+.overlay-panel.win .overlay-stats div:first-child b { color: var(--gs-accent); }
+
+.overlay.reveal { animation: ov-fade 380ms ease both; }
+.overlay.reveal .overlay-panel { animation: panel-up 560ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.overlay.reveal .overlay-panel > .eyebrow,
+.overlay.reveal .overlay-panel > h2,
+.overlay.reveal .overlay-score,
+.overlay.reveal .overlay-panel > p:not(.eyebrow),
+.overlay.reveal .overlay-actions,
+.overlay.reveal .overlay-settings { animation: fade-up 380ms ease both; }
+.overlay.reveal .overlay-panel > .eyebrow { animation-delay: 120ms; }
+.overlay.reveal .overlay-panel > h2 { animation-delay: 190ms; }
+.overlay.reveal .overlay-score { animation-delay: 270ms; }
+.overlay.reveal .overlay-stats div { animation: fade-up 360ms ease both; animation-delay: calc(420ms + var(--i, 0) * 80ms); }
+.overlay.reveal .overlay-panel > p:not(.eyebrow) { animation-delay: 820ms; }
+.overlay.reveal .overlay-actions { animation-delay: 1000ms; }
+.overlay.reveal .overlay-settings { animation-delay: 1100ms; }
+.overlay.reveal:not(.ready) .overlay-actions { pointer-events: none; }
+@keyframes ov-fade { from { opacity: 0; } }
+@keyframes panel-up { from { opacity: 0; transform: translateY(28px) scale(0.98); } }
+
+@media (max-width: 560px) {
+  .overlay-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 /* ---------- Toast ---------- */
 .toast-stack {
   position: fixed;

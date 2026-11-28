@@ -165,6 +165,10 @@ class Game {
     this.autoJoinCode = new URLSearchParams(location.search).get("room");
     this.lastFrame = performance.now() / 1000;
     this.resumeDeadline = 0;
+    this.matchStats = { shots: 0, hits: 0, heads: 0, dmg: 0 };
+    this._endTimers = [];
+    this._endSkip = null;
+    this.endFx = null;
 
     this._frame = this._frame.bind(this);
     this._bind();
@@ -447,6 +451,7 @@ class Game {
     this.mySlot = msg.youSlot ?? this.mySlot ?? 0;
     this._updateNames(msg);
     if (msg.state === "waiting") {
+      this._clearEndSequence();
       this.mode = "room";
       this.gameState = "waiting";
       this.world?.setMode("menu");
@@ -494,6 +499,8 @@ class Game {
   }
 
   _onStart(msg) {
+    this._clearEndSequence();
+    this.matchStats = { shots: 0, hits: 0, heads: 0, dmg: 0 };
     this._ensureGameView(true);
     this.gameState = "countdown";
     this.resultsOpen = false;
@@ -1008,6 +1015,10 @@ class Game {
     }
   }
 
+  // 结束演出（三段式，参考射击游戏常见做法）：
+  // ① 最后一杀慢镜头 + 压暗停顿 ~0.9s，HUD 淡出、击杀反馈留在画面上
+  // ② 胜/负大横幅展开 ~2.3s（点一下可跳过）
+  // ③ 结算面板上滑，比分与战绩逐项滚动，按钮最后才可点，防止连点误触
   _onEnded(msg) {
     if (this.endedShown) return;
     this.endedShown = true;
@@ -1016,6 +1027,7 @@ class Game {
     this.paused = true;
     this.fallbackControl = false;
     this.input.enabled = false;
+    this.input.clear();
     this.ui.showScoreboard(false);
     this.ui.setScope(false, false);
     this.lastScopeState = null;
@@ -1023,23 +1035,90 @@ class Game {
     this.world?.setAiming(false, this.local?.weapon);
     this.input.setAimFactor(1);
     this._resetAssist();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this._clearEndSequence();
+
     const win = msg.winner === this.mySlot;
     const score = msg.score || [0, 0];
-    const reason = msg.reason === "left" ? "对手离开了对局。" : `先到 ${this.lastSnapshot?.target || 10} 杀，对局结束。`;
+    const mine = score[this.mySlot] || 0;
+    const theirs = score[1 - this.mySlot] || 0;
+    const left = msg.reason === "left";
+    const target = this.lastSnapshot?.target || 10;
+    const me = (this.lastSnapshot?.players || []).find((p) => p.slot === this.mySlot);
+    const st = this.matchStats || { shots: 0, hits: 0, heads: 0, dmg: 0 };
+    const result = {
+      win,
+      score: [mine, theirs],
+      reason: left ? "对手离开了对局。" : `先到 ${target} 杀，对局结束。`,
+      stats: [
+        { label: "击杀", value: me?.kills ?? mine },
+        { label: "死亡", value: me?.deaths ?? 0 },
+        { label: "爆头", value: st.heads },
+        { label: "伤害", value: st.dmg },
+        { label: "命中率", value: st.shots ? Math.round((st.hits / st.shots) * 100) : 0, suffix: "%" },
+      ],
+    };
+
+    const beat = left ? 0.25 : 0.9;
+    this.endFx = { start: performance.now() / 1000, beat };
+    document.body.classList.add("match-ending");
+    document.body.classList.toggle("match-lost", !win);
+    const later = (sec, fn) => this._endTimers.push(setTimeout(fn, sec * 1000));
+    later(beat, () => {
+      this.ui.clearCenter();
+      this.persistentCenter = null;
+      this.ui.showVictory({
+        win,
+        eyebrow: left ? "OPPONENT LEFT" : win ? "MATCH WON" : "MATCH LOST",
+        title: win ? "胜利" : "败北",
+        sub: win
+          ? (left ? "对手撤离，仓库归你了" : `仓库已拿下 · ${mine} : ${theirs}`)
+          : `差一点 · ${mine} : ${theirs}`,
+      });
+      this.audio.init();
+      if (win) this.audio.win();
+      else this.audio.lose();
+      // 横幅出现后才允许跳过，避免最后一枪的点击直接把演出跳掉
+      this._endSkip = (e) => {
+        if (e.type === "keydown" && e.code !== "Space" && e.code !== "Enter" && e.code !== "Escape") return;
+        this._showResults(result);
+      };
+      window.addEventListener("pointerdown", this._endSkip, true);
+      window.addEventListener("keydown", this._endSkip, true);
+    });
+    later(beat + 2.3, () => this._showResults(result));
+  }
+
+  _showResults(result) {
+    if (!this.resultsOpen || this.mode !== "game") return;
+    this._clearEndSequence(false);
+    this.ui.hideVictory(true);
+    if (document.pointerLockElement) document.exitPointerLock();
     this.ui.showOverlay({
       eyebrow: "MATCH COMPLETE",
-      title: win ? "胜利" : "失败",
-      text: reason,
-      score: [score[this.mySlot] || 0, score[1 - this.mySlot] || 0],
-      kind: win ? "win" : "lose",
+      title: result.win ? "胜利" : "失败",
+      text: result.reason,
+      score: result.score,
+      stats: result.stats,
+      reveal: true,
+      kind: result.win ? "win" : "lose",
       primary: { label: "再来一局", onClick: () => this._rematch() },
       secondary: { label: "返回大厅", onClick: () => this._leaveMatch() },
       dismissible: false,
     });
-    this.audio.init();
-    if (win) this.audio.win();
-    else this.audio.lose();
+  }
+
+  // 清掉结束演出的定时器 / 跳过监听；full=true 时连横幅和压暗一起撤掉（开新局 / 回大厅）
+  _clearEndSequence(full = true) {
+    for (const t of this._endTimers || []) clearTimeout(t);
+    this._endTimers = [];
+    if (this._endSkip) {
+      window.removeEventListener("pointerdown", this._endSkip, true);
+      window.removeEventListener("keydown", this._endSkip, true);
+      this._endSkip = null;
+    }
+    this.endFx = null;
+    document.body.classList.remove("match-ending", "match-lost");
+    if (full) this.ui.hideVictory(false);
   }
 
   _rematch() {
@@ -1065,6 +1144,7 @@ class Game {
 
   _resetToMenu() {
     clearTimeout(this.resumeDeadline);
+    this._clearEndSequence();
     if (document.pointerLockElement) document.exitPointerLock();
     this.mode = "menu";
     this.gameState = "idle";
@@ -1135,6 +1215,11 @@ class Game {
       } else if (ev.type === "hit") {
         if (ev.by === my) {
           const head = ev.part === "head";
+          if (this.matchStats) {
+            this.matchStats.hits++;
+            this.matchStats.dmg += ev.dmg || 0;
+            if (head) this.matchStats.heads++;
+          }
           this.ui.hitmarker(head);
           this.audio.hit(head);
           this.ui.damageNumber(ev.dmg, head);
@@ -1381,6 +1466,7 @@ class Game {
       z: eye.z + dir.z * endT,
     };
     this.world?.localShot(end, this.local.weapon);
+    if (this.matchStats) this.matchStats.shots++;
     if (!hitRemote && endT < w.range - 0.05) {
       this.world?.impact(end, { decal: true, friendly: true });
     } else if (hitRemote) {
@@ -1537,8 +1623,14 @@ class Game {
     this.lastFrame = now;
     if (!Number.isFinite(dt) || dt < 0) dt = 0;
     dt = Math.min(dt, 0.05);
+    // 结束演出的慢镜头：停顿阶段画面时间 ×0.3，之后约 0.8s 内恢复正常（只影响画面，不影响网络）
+    let wdt = dt;
+    if (this.endFx) {
+      const t = now - this.endFx.start;
+      wdt = dt * (t < this.endFx.beat ? 0.3 : Math.min(1, 0.3 + (t - this.endFx.beat) * 0.9));
+    }
 
-    this.world?.update(dt);
+    this.world?.update(wdt);
 
     if (this.mode === "game") {
       let remote = null;
@@ -1582,8 +1674,8 @@ class Game {
           this.lastAimFactor = aimFactor;
           this.input.setAimFactor(aimFactor);
         }
-        this.world?.setRemote(remote, dt);
-        this.world?.updateCamera(this.visual, this.input.view, this.local, dt);
+        this.world?.setRemote(remote, wdt);
+        this.world?.updateCamera(this.visual, this.input.view, this.local, wdt);
         this.world?.setReload(this.local.reloadLeft || 0);
         const scoped = !!this.world?.scoped && aiming;
         const adsDot = aiming && weaponId !== "sniper";

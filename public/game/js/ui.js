@@ -55,6 +55,11 @@ export class UI {
       overlayTitle: $("overlay-title"),
       overlayText: $("overlay-text"),
       overlayScore: $("overlay-score"),
+      overlayStats: $("overlay-stats"),
+      victory: $("victory"),
+      victoryEyebrow: $("victory-eyebrow"),
+      victoryTitle: $("victory-title"),
+      victorySub: $("victory-sub"),
       overlayPrimary: $("btn-overlay-primary"),
       overlaySecondary: $("btn-overlay-secondary"),
       toastStack: $("toast-stack"),
@@ -66,6 +71,8 @@ export class UI {
     // 避免无谓的样式重算 / 重排（移动端和集显上很明显）。
     this._cache = Object.create(null);
     this.touchMode = false;
+    this._revealTimers = [];
+    this.reducedMotion = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     this.centerTimer = 0;
     this.damageTimer = 0;
     this.hitTimer = 0;
@@ -475,9 +482,64 @@ export class UI {
   }
 
   // ---------- 覆盖层 ----------
-  showOverlay({ eyebrow = "", title = "", text = "", score = null, primary = null, secondary = null, kind = "", dismissible = true } = {}) {
-    const { overlay, overlayPanel, overlayEyebrow, overlayTitle, overlayText, overlayScore } = this.el;
+  // ---------- 胜负横幅 ----------
+  showVictory({ win, eyebrow, title, sub }) {
+    const el = this.el.victory;
+    if (!el) return;
+    this.el.victoryEyebrow.textContent = eyebrow || "";
+    this.el.victoryTitle.textContent = title || "";
+    this.el.victorySub.textContent = sub || "";
+    el.className = `victory ${win ? "win" : "lose"}`;
+    void el.offsetWidth; // 重新触发入场动画
+    el.classList.add("on");
+  }
+
+  hideVictory(animated = true) {
+    const el = this.el.victory;
+    if (!el || el.classList.contains("hidden")) return;
+    if (!animated || this.reducedMotion) {
+      el.className = "victory hidden";
+      return;
+    }
+    el.classList.add("out");
+    setTimeout(() => { if (el.classList.contains("out")) el.className = "victory hidden"; }, 360);
+  }
+
+  _clearReveal() {
+    for (const t of this._revealTimers) clearTimeout(t);
+    this._revealTimers = [];
+  }
+
+  // 数字从 0 滚到目标值（ease-out），减弱动态效果时直接显示
+  _countUp(el, to, { suffix = "", delay = 0, dur = 650 } = {}) {
+    const target = Math.max(0, Math.round(Number(to) || 0));
+    if (this.reducedMotion || target === 0) {
+      el.textContent = `${target}${suffix}`;
+      return;
+    }
+    el.textContent = `0${suffix}`;
+    this._revealTimers.push(setTimeout(() => {
+      const t0 = performance.now();
+      const tick = (now) => {
+        const k = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - k, 3);
+        el.textContent = `${Math.round(target * e)}${suffix}`;
+        if (k < 1 && el.isConnected) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, delay));
+  }
+
+  showOverlay({ eyebrow = "", title = "", text = "", score = null, stats = null, reveal = false, primary = null, secondary = null, kind = "", dismissible = true } = {}) {
+    const { overlay, overlayPanel, overlayEyebrow, overlayTitle, overlayText, overlayScore, overlayStats } = this.el;
+    this._clearReveal();
     overlay.classList.remove("hidden");
+    overlay.classList.toggle("reveal", !!reveal && !this.reducedMotion);
+    overlay.classList.toggle("ready", !reveal || this.reducedMotion);
+    if (reveal && !this.reducedMotion) {
+      void overlay.offsetWidth;
+      this._revealTimers.push(setTimeout(() => overlay.classList.add("ready"), 1100));
+    }
     overlayPanel.className = "overlay-panel" + (kind ? ` ${kind}` : "");
     overlayEyebrow.textContent = eyebrow || "TACTICAL";
     overlayTitle.textContent = title || "";
@@ -487,15 +549,35 @@ export class UI {
       overlayScore.replaceChildren();
       const a = document.createElement("span");
       a.className = "you";
-      a.textContent = score[0];
       const sep = document.createElement("em");
       sep.textContent = ":";
       const b = document.createElement("span");
       b.className = "them";
-      b.textContent = score[1];
       overlayScore.append(a, sep, b);
+      if (reveal) {
+        this._countUp(a, score[0], { delay: 320, dur: 700 });
+        this._countUp(b, score[1], { delay: 320, dur: 700 });
+      } else {
+        a.textContent = score[0];
+        b.textContent = score[1];
+      }
     } else {
       overlayScore.classList.add("hidden");
+    }
+    if (overlayStats) {
+      overlayStats.replaceChildren();
+      overlayStats.classList.toggle("hidden", !stats?.length);
+      (stats || []).forEach((item, i) => {
+        const cell = document.createElement("div");
+        cell.style.setProperty("--i", i);
+        const v = document.createElement("b");
+        const l = document.createElement("span");
+        l.textContent = item.label;
+        cell.append(v, l);
+        overlayStats.append(cell);
+        if (reveal) this._countUp(v, item.value, { suffix: item.suffix || "", delay: 480 + i * 80, dur: 600 });
+        else v.textContent = `${item.value}${item.suffix || ""}`;
+      });
     }
     const primaryBtn = this.el.overlayPrimary;
     const secondaryBtn = this.el.overlaySecondary;
@@ -518,6 +600,8 @@ export class UI {
   }
 
   hideOverlay() {
+    this._clearReveal();
+    this.el.overlay.classList.remove("reveal");
     this.el.overlay.classList.add("hidden");
   }
 
