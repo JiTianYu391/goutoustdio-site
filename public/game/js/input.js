@@ -1,4 +1,5 @@
-// 键鼠输入与指针锁定。视角角度和移动键位按 30Hz 采样后发给服务器。
+// 键鼠 / 触屏输入与指针锁定。视角角度和移动键位按 30Hz 采样后发给服务器。
+// 触屏层（touch.js）只往这里写 touchKeys / touchLatch 和视角增量，网络与预测逻辑完全复用。
 
 import { KEY } from "./shared.js";
 
@@ -25,6 +26,9 @@ export class Input {
     this.aimFactor = 1;
     this.assistSlow = 1;
     this.lockSupported = !!canvas.requestPointerLock;
+    this.touchKeys = 0;      // 触屏持续按住的键位（摇杆方向、蹲）
+    this.touchLatch = 0;     // 触屏点按的键位（跳）：至少保留到下一次采样，快速轻点也不丢
+    this.onClear = null;
     this.onLockChange = null;
     this.onLockError = null;
     this._bind();
@@ -79,12 +83,17 @@ export class Input {
     window.addEventListener("mousemove", (e) => {
       if (!this.enabled) return;
       if (!this.locked && !this.dragging) return;
-      const speed = 0.0021 * this.sensitivity * this.aimFactor * this.assistSlow * (this.locked ? 1 : 0.8);
-      this.view.yaw -= (e.movementX || 0) * speed;
-      this.view.pitch -= (e.movementY || 0) * speed;
-      this.view.pitch = Math.max(-1.52, Math.min(1.52, this.view.pitch));
-      if (Math.abs(this.view.yaw) > Math.PI * 4) this.view.yaw = ((this.view.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+      this.look(e.movementX || 0, e.movementY || 0, 0.0021 * (this.locked ? 1 : 0.8));
     });
+  }
+
+  // 视角增量（像素）→ 角度。base 是每像素弧度，触屏和鼠标各自给。
+  look(dx, dy, base) {
+    const speed = base * this.sensitivity * this.aimFactor * this.assistSlow;
+    this.view.yaw -= dx * speed;
+    this.view.pitch -= dy * speed;
+    this.view.pitch = Math.max(-1.52, Math.min(1.52, this.view.pitch));
+    if (Math.abs(this.view.yaw) > Math.PI * 4) this.view.yaw = ((this.view.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
   }
 
   _key(e, down) {
@@ -148,10 +157,12 @@ export class Input {
     this.fireHeld = false;
     this.firePressed = false;
     this.aimHeld = false;
-    this.aimHeld = false;
     this.reloadPressed = false;
     this.slotPressed = 0;
     this.scoreHeld = false;
+    this.touchKeys = 0;
+    this.touchLatch = 0;
+    if (this.onClear) this.onClear();
   }
 
   reset() {
@@ -170,7 +181,9 @@ export class Input {
       if (this.keys.has("Space")) keys |= KEY.JUMP;
       if (this.keys.has("ControlLeft") || this.keys.has("ControlRight") || this.keys.has("KeyC")) keys |= KEY.CROUCH;
       if (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) keys |= KEY.WALK;
+      keys |= this.touchKeys | this.touchLatch;
     }
+    this.touchLatch = 0;
     const fire = this.enabled && (autoFire ? this.fireHeld : this.firePressed);
     const reload = this.enabled && this.reloadPressed;
     const slot = this.enabled ? this.slotPressed : 0;

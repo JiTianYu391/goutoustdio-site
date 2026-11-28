@@ -2,6 +2,7 @@
 
 import { Net } from "./net.js";
 import { Input } from "./input.js";
+import { TouchControls, prefersTouch } from "./touch.js";
 import { GameAudio } from "./audio.js";
 import { GameWorld } from "./world.js";
 import { UI } from "./ui.js";
@@ -92,6 +93,11 @@ class Game {
     this.net = new Net();
     this.audio = new GameAudio();
     this.input = new Input(this.canvas);
+    this.touch = new TouchControls(document.getElementById("touch-ui"), this.input, {
+      slots: document.getElementById("weapon-slots"),
+      onPause: () => this._touchPause(),
+    });
+    this.touchMode = false;
     this.world = null;
 
     this.settings = loadSettings();
@@ -221,6 +227,16 @@ class Game {
     nameInput.addEventListener("blur", () => this._syncName());
 
     window.addEventListener("pointerdown", () => this.audio.init(), { once: true });
+    // 触屏 / 键鼠自动切换：开局前最后一次用什么点的就按什么模式来（二合一笔记本也能用）。
+    this._setTouchMode(prefersTouch());
+    window.addEventListener("pointerdown", (e) => {
+      if (this.mode === "game" && !this.paused) return;
+      if (e.pointerType === "touch" && !this.touchMode) this._setTouchMode(true);
+      else if (e.pointerType === "mouse" && this.touchMode) this._setTouchMode(false);
+    }, true);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && this.touchMode) this._touchPause();
+    });
     this.input.onLockChange = (locked) => this._onLockChange(locked);
     this.input.onLockError = () => this._onLockError();
 
@@ -517,10 +533,13 @@ class Game {
     this.paused = true;
     this.input.enabled = false;
     const live = this.gameState === "live";
+    const touchText = live
+      ? "对局还在继续。点按钮回到战斗：左侧摇杆移动，右侧滑动瞄准，右上角可暂停。"
+      : "倒计时结束后开打。左侧任意处按下出现摇杆，右侧滑动转视角，开火键按住连发。建议横屏。";
     this.ui.showOverlay({
       eyebrow: live ? "RESUME MATCH" : "DEPLOY",
       title: live ? "回到战斗" : "准备进入战斗",
-      text: live
+      text: this.touchMode ? touchText : live
         ? "对局还在继续。点击按钮锁定鼠标回到战斗，按 Esc 可以再次释放鼠标。"
         : "点击按钮锁定鼠标。倒计时结束后开打，按 Esc 可释放鼠标并暂停操作。",
       primary: { label: "进入战斗", onClick: () => this._tryLock() },
@@ -528,8 +547,62 @@ class Game {
     });
   }
 
+  _setTouchMode(on) {
+    this.touchMode = !!on;
+    document.body.classList.toggle("touch-mode", this.touchMode);
+    this.ui.setTouchMode(this.touchMode);
+  }
+
+  // 触屏没有指针锁定：点“进入战斗”直接交出控制权，顺手请求全屏 + 横屏锁定（不支持就忽略）。
+  _enterTouch() {
+    if (this.mode !== "game" || this.resultsOpen) return;
+    this._requestFullscreen();
+    this.fallbackControl = true;
+    this.ui.hideOverlay();
+    this.paused = false;
+    this.input.enabled = this.gameState !== "ended";
+  }
+
+  _requestFullscreen() {
+    const el = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    const lock = () => {
+      try {
+        const p = screen.orientation?.lock?.("landscape");
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch { /* iOS / 桌面不支持方向锁定 */ }
+    };
+    try {
+      const p = req.call(el, { navigationUI: "hide" });
+      if (p && typeof p.then === "function") p.then(lock, () => {});
+      else lock();
+    } catch { /* ignore */ }
+  }
+
+  _touchPause() {
+    if (!this.touchMode || this.mode !== "game" || this.resultsOpen || this.paused) return;
+    if (this.gameState !== "live" && this.gameState !== "countdown") return;
+    this.fallbackControl = false;
+    this.input.enabled = false;
+    this.input.clear();
+    this.paused = true;
+    this.ui.showOverlay({
+      eyebrow: "TACTICAL PAUSE",
+      title: "已暂停",
+      text: "操作已暂停，对局仍在继续。点继续回到战斗。",
+      primary: { label: "继续游戏", onClick: () => this._tryLock() },
+      secondary: { label: "退出对局", onClick: () => this._leaveMatch() },
+    });
+  }
+
   _tryLock() {
     this.audio.init();
+    if (this.touchMode) {
+      this._enterTouch();
+      return;
+    }
     this.input.requestLock();
     clearTimeout(this.lockFallbackTimer);
     this.lockFallbackTimer = setTimeout(() => {
@@ -1436,6 +1509,7 @@ class Game {
     }
 
     this._updateAmmoHud();
+    if (this.touchMode) this.touch.sync();
     if (this.input.scoreHeld && this.mode === "game" && this.gameState === "live" && !this.resultsOpen) {
       if (!this.scoreboardVisible) {
         this.scoreboardVisible = true;

@@ -59,7 +59,13 @@ export class UI {
       overlaySecondary: $("btn-overlay-secondary"),
       toastStack: $("toast-stack"),
       menuButtons: [ $("btn-quick"), $("btn-create"), $("btn-practice") ],
+      weaponSlots: Array.from(document.querySelectorAll("#weapon-slots [data-slot]")),
+      menuFoot: $("menu-foot"),
     };
+    // HUD 写入缓存：快照 30Hz、渲染每帧都会调用 setter，值没变就不碰 DOM，
+    // 避免无谓的样式重算 / 重排（移动端和集显上很明显）。
+    this._cache = Object.create(null);
+    this.touchMode = false;
     this.centerTimer = 0;
     this.damageTimer = 0;
     this.hitTimer = 0;
@@ -218,6 +224,7 @@ export class UI {
   hideHud() {
     this.el.hud.classList.add("hidden");
     this.el.hud.setAttribute("aria-hidden", "true");
+    this._cache = Object.create(null);
     this.el.scope.classList.remove("on", "assist");
     this.el.adsDot.classList.remove("on", "assist");
     this.el.crosshair.classList.remove("assist");
@@ -229,9 +236,31 @@ export class UI {
     this.el.damageFlash.classList.remove("on");
   }
 
+  _changed(key, value) {
+    if (this._cache[key] === value) return false;
+    this._cache[key] = value;
+    return true;
+  }
+
+  setTouchMode(on) {
+    this.touchMode = !!on;
+    this._cache.ammo = undefined;
+    if (this.el.hintBar) {
+      this.el.hintBar.textContent = on
+        ? "左侧拖动移动 · 右侧滑动转视角 · 开火键可边按边瞄"
+        : "WASD 移动 · 左键开火 · 右键开镜 · R 换弹 · 1/2/3 换枪 · Ctrl 蹲 · Space 跳 · Tab 计分板";
+    }
+    if (this.el.menuFoot) {
+      this.el.menuFoot.textContent = on
+        ? "已切换为触屏操作 · 建议横屏 + 全屏 · 好友各开一个窗口即可对局"
+        : "键鼠或触屏均可 · 推荐 Chrome / Edge · 好友各开一个窗口即可对局";
+    }
+  }
+
   setScore(score, mySlot, names, target) {
     const a = score?.[mySlot] || 0;
     const b = score?.[1 - mySlot] || 0;
+    if (!this._changed("score", `${a}|${b}|${names?.you}|${names?.them}|${target}`)) return;
     this.el.scoreYou.textContent = a;
     this.el.scoreThem.textContent = b;
     this.el.nameYou.textContent = names?.you || "你";
@@ -245,13 +274,20 @@ export class UI {
 
   setHealth(hp) {
     const v = Math.max(0, Math.round(hp || 0));
+    if (!this._changed("hp", v)) return;
     this.el.hpValue.textContent = v;
     this.el.hpFill.style.width = `${Math.min(100, v)}%`;
-    this.el.hpFill.style.background = v <= 30 ? "var(--gs-orange)" : "var(--gs-cyan)";
+    this.el.hpFill.classList.toggle("low", v <= 30);
+    this.el.hpValue.classList.toggle("low", v <= 30);
     this.el.lowHp.classList.toggle("on", v > 0 && v <= 30);
   }
 
   setAmmo({ weapon, mag, reserve, magSize, reload }) {
+    const sig = `${weapon?.id}|${mag | 0}|${reserve | 0}|${(reload || 0).toFixed(1)}`;
+    if (!this._changed("ammo", sig)) return;
+    const slot = weapon?.slot || 1;
+    for (const el of this.el.weaponSlots) el.classList.toggle("on", Number(el.dataset.slot) === slot);
+    const rKey = this.touchMode ? "点换弹" : "R 换弹";
     this.el.weaponName.textContent = weapon?.name || "AR-15";
     this.el.ammoMag.textContent = Math.max(0, mag | 0);
     this.el.ammoReserve.textContent = Math.max(0, reserve | 0);
@@ -261,20 +297,23 @@ export class UI {
       this.el.reloadLabel.textContent = `换弹中 ${reload.toFixed(1)}s`;
       this.el.reloadLabel.className = "reload-label on";
     } else if ((mag | 0) <= 0) {
-      this.el.reloadLabel.textContent = "弹匣已空 · R 换弹";
+      this.el.reloadLabel.textContent = `弹匣已空 · ${rKey}`;
       this.el.reloadLabel.className = "reload-label warn";
     } else if ((mag | 0) <= 5) {
-      this.el.reloadLabel.textContent = "R 换弹";
+      this.el.reloadLabel.textContent = rKey;
       this.el.reloadLabel.className = "reload-label warn";
     } else {
       this.el.reloadLabel.className = "reload-label";
-      this.el.reloadLabel.textContent = "R 换弹";
+      this.el.reloadLabel.textContent = rKey;
     }
   }
 
   setCrosshair(spread) {
     const gap = Math.max(3, Math.min(42, 4 + (spread || 0) * 820));
-    this.el.crosshair.style.setProperty("--gap", `${gap.toFixed(1)}px`);
+    // 每帧调用：只有变化超过半像素才写 CSS 变量，静止时不触发样式重算。
+    const q = Math.round(gap * 2) / 2;
+    if (!this._changed("gap", q)) return;
+    this.el.crosshair.style.setProperty("--gap", `${q}px`);
   }
 
   hitmarker(head, kill = false) {
@@ -295,6 +334,7 @@ export class UI {
   }
 
   setAssist(active, scoped = false) {
+    if (!this._changed("assist", `${!!active}|${!!scoped}`)) return;
     this.el.crosshair.classList.toggle("assist", !!active && !scoped);
     this.el.adsDot.classList.toggle("assist", !!active && !scoped);
     this.el.scope.classList.toggle("assist", !!active && scoped);
@@ -376,8 +416,9 @@ export class UI {
 
   setPing(rtt) {
     const ms = Math.max(0, Math.round((rtt || 0) * 1000));
+    if (!this._changed("ping", ms)) return;
     this.el.pingLabel.textContent = `${ms} ms`;
-    this.el.pingLabel.style.color = ms < 80 ? "#9ad9b0" : ms < 160 ? "#e6c07a" : "#f07167";
+    this.el.pingLabel.style.color = ms < 80 ? "#a8d08d" : ms < 160 ? "#f2c14e" : "#ff6b57";
   }
 
   setQualityLabel(text) {

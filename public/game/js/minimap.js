@@ -25,13 +25,13 @@ export class Minimap {
     const g = this.staticLayer.getContext("2d");
     const S = this.size;
     g.clearRect(0, 0, S, S);
-    g.fillStyle = "#0a111b";
+    g.fillStyle = "#11100e";
     g.fillRect(0, 0, S, S);
 
-    g.fillStyle = "rgba(72, 96, 120, 0.14)";
+    g.fillStyle = "rgba(120, 112, 98, 0.12)";
     g.fillRect(this.mx(-MAP_HALF), this.mz(-MAP_HALF), WORLD_SIZE * this.scale, WORLD_SIZE * this.scale);
 
-    g.strokeStyle = "rgba(120, 168, 200, 0.075)";
+    g.strokeStyle = "rgba(220, 205, 180, 0.06)";
     g.lineWidth = 1;
     for (let v = -20; v <= 20; v += 8) {
       g.beginPath();
@@ -54,21 +54,21 @@ export class Minimap {
       const y = this.mz(b.z - b.d / 2);
       const w = b.w * this.scale;
       const d = b.d * this.scale;
-      let fill = "rgba(150, 168, 184, 0.28)";
-      let stroke = "rgba(190, 210, 228, 0.28)";
+      let fill = "rgba(176, 170, 160, 0.28)";
+      let stroke = "rgba(220, 212, 198, 0.28)";
       if (b.mat === "wood") {
         fill = "rgba(196, 152, 96, 0.36)";
         stroke = "rgba(224, 184, 128, 0.45)";
       } else if (b.mat === "metal") {
-        fill = "rgba(92, 160, 172, 0.3)";
-        stroke = "rgba(122, 202, 214, 0.4)";
+        fill = "rgba(150, 156, 150, 0.32)";
+        stroke = "rgba(196, 202, 192, 0.42)";
       } else if (b.mat === "concrete") {
-        fill = "rgba(142, 158, 176, 0.34)";
-        stroke = "rgba(188, 206, 224, 0.4)";
+        fill = "rgba(168, 162, 152, 0.34)";
+        stroke = "rgba(214, 206, 192, 0.4)";
       }
       if (b.h > 4) {
-        fill = "rgba(116, 134, 154, 0.5)";
-        stroke = "rgba(200, 220, 238, 0.5)";
+        fill = "rgba(136, 130, 120, 0.5)";
+        stroke = "rgba(226, 218, 204, 0.5)";
       }
       g.fillStyle = fill;
       g.fillRect(x, y, w, d);
@@ -77,12 +77,12 @@ export class Minimap {
       g.strokeRect(x + 0.5, y + 0.5, Math.max(1, w - 1), Math.max(1, d - 1));
     }
 
-    g.strokeStyle = "rgba(88, 210, 238, 0.35)";
+    g.strokeStyle = "rgba(245, 184, 61, 0.32)";
     g.lineWidth = 1.5;
     g.strokeRect(this.pad - 2.5, this.pad - 2.5, WORLD_SIZE * this.scale + 5, WORLD_SIZE * this.scale + 5);
 
     g.font = "600 11px ui-monospace, Menlo, monospace";
-    g.fillStyle = "rgba(150, 190, 212, 0.55)";
+    g.fillStyle = "rgba(214, 204, 186, 0.55)";
     g.textAlign = "center";
     g.fillText("N", S / 2, 10);
     g.textAlign = "left";
@@ -108,8 +108,8 @@ export class Minimap {
     g.translate(px, py);
     g.rotate(ang);
     const cone = g.createRadialGradient(0, 0, 0, 0, 0, 44);
-    cone.addColorStop(0, "rgba(80, 224, 248, 0.22)");
-    cone.addColorStop(1, "rgba(80, 224, 248, 0)");
+    cone.addColorStop(0, "rgba(255, 200, 90, 0.22)");
+    cone.addColorStop(1, "rgba(255, 200, 90, 0)");
     g.fillStyle = cone;
     g.beginPath();
     g.moveTo(0, 0);
@@ -139,8 +139,8 @@ export class Minimap {
     g.save();
     g.translate(px, py);
     g.rotate(ang);
-    g.fillStyle = local.alive === false ? "rgba(170, 180, 196, 0.7)" : "#63e8ff";
-    g.shadowColor = "rgba(80, 230, 255, 0.9)";
+    g.fillStyle = local.alive === false ? "rgba(180, 174, 164, 0.7)" : "#ffc457";
+    g.shadowColor = "rgba(255, 190, 70, 0.9)";
     g.shadowBlur = 7;
     g.beginPath();
     g.moveTo(7, 0);

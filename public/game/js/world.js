@@ -12,11 +12,13 @@ const COLORS = {
   enemyDim: 0x8a4a2e,
   friendly: 0x3d7fc4,
   friendlyDim: 0x2c5479,
-  gun: 0x5e6a7c,
-  gunDark: 0x3b4350,
-  accent: 0x46d6ef,
+  gun: 0x5d6066,
+  gunDark: 0x34373c,
+  accent: 0xffb547,
   boot: 0x191c22,
 };
+
+const ENEMY_NAME_COLOR = "#ff8a5c";
 
 const MAT_TILE = { concrete: 2.4, wall: 3.2, wood: 1.5, metal: 2.2 };
 
@@ -25,6 +27,79 @@ function lambert(color, extra = {}) {
 }
 function basic(color, extra = {}) {
   return new THREE.MeshBasicMaterial({ color, ...extra });
+}
+
+// 把一组盒子烘成一个带顶点色的 BufferGeometry：一个部件 = 一次 draw call。
+// part: { s:[w,h,d], p:[x,y,z], r:[rx,ry,rz], c:hex, top:[sx,sz], bot:[sx,sz], ao }
+// top/bot 让盒子上下端收窄（梯形躯干、头盔、大腿），ao 是底部压暗系数（伪环境光遮蔽），
+// 都只在建模时计算一次，运行时零额外开销。
+const _pm = new THREE.Matrix4();
+const _pq = new THREE.Quaternion();
+const _pe = new THREE.Euler();
+const _pv = new THREE.Vector3();
+const _ps = new THREE.Vector3(1, 1, 1);
+const _pn = new THREE.Matrix3();
+const _pc = new THREE.Color();
+function partsGeometry(parts) {
+  const pos = [];
+  const nor = [];
+  const col = [];
+  const idx = [];
+  for (const part of parts) {
+    const [w, h, d] = part.s;
+    const box = new THREE.BoxGeometry(w, h, d);
+    const bp = box.attributes.position;
+    const top = part.top || null;
+    const bot = part.bot || null;
+    if (top || bot) {
+      for (let i = 0; i < bp.count; i++) {
+        const k = bp.getY(i) > 0 ? top : bot;
+        if (!k) continue;
+        bp.setX(i, bp.getX(i) * k[0]);
+        bp.setZ(i, bp.getZ(i) * k[1]);
+      }
+      box.computeVertexNormals();
+    }
+    const bn = box.attributes.normal;
+    const r = part.r || [0, 0, 0];
+    _pe.set(r[0], r[1], r[2]);
+    _pq.setFromEuler(_pe);
+    _pv.set(part.p[0], part.p[1], part.p[2]);
+    _pm.compose(_pv, _pq, _ps);
+    _pn.getNormalMatrix(_pm);
+    _pc.setHex(part.c);
+    const ao = part.ao ?? 0.8;
+    const base = pos.length / 3;
+    const n = new THREE.Vector3();
+    const v = new THREE.Vector3();
+    for (let i = 0; i < bp.count; i++) {
+      const t = (bp.getY(i) + h / 2) / h;
+      const shade = ao + (1 - ao) * t;
+      v.set(bp.getX(i), bp.getY(i), bp.getZ(i)).applyMatrix4(_pm);
+      n.set(bn.getX(i), bn.getY(i), bn.getZ(i)).applyMatrix3(_pn).normalize();
+      pos.push(v.x, v.y, v.z);
+      nor.push(n.x, n.y, n.z);
+      col.push(_pc.r * shade, _pc.g * shade, _pc.b * shade);
+    }
+    const bi = box.index.array;
+    for (let i = 0; i < bi.length; i++) idx.push(base + bi[i]);
+    box.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+// 颜色明度缩放（建模配色用）
+function tint(hex, k) {
+  const r = Math.min(255, Math.round(((hex >> 16) & 255) * k));
+  const g = Math.min(255, Math.round(((hex >> 8) & 255) * k));
+  const b = Math.min(255, Math.round((hex & 255) * k));
+  return (r << 16) | (g << 8) | b;
 }
 
 function mulberry(seed) {
@@ -650,22 +725,18 @@ export class GameWorld {
     const fill = new THREE.DirectionalLight(0xa9c8ff, 0.55);
     fill.position.set(-18, 14, -12);
     this.scene.add(fill);
-    const bounce = new THREE.DirectionalLight(0xffd9ad, 0.3);
-    bounce.position.set(-6, 3, 20);
-    this.scene.add(bounce);
-    this.scene.add(new THREE.AmbientLight(0x7c8ca8, 0.28));
+    // 原来的第三盏弱方向光（0.3）并进环境光：每个像素少算一盏灯，观感几乎一致。
+    this.scene.add(new THREE.AmbientLight(0x9a948a, 0.4));
 
     this.vmScene.add(new THREE.HemisphereLight(0xe9f2ff, 0x2a2e38, 2.2));
     const vmKey = new THREE.DirectionalLight(0xfff2df, 3.0);
     vmKey.position.set(1.2, 2.2, 1.4);
     this.vmScene.add(vmKey);
-    const vmRim = new THREE.DirectionalLight(0x8bc8ff, 1.5);
+    const vmRim = new THREE.DirectionalLight(0xd2e0f2, 1.4);
     vmRim.position.set(-2, 0.6, -1);
     this.vmScene.add(vmRim);
-    this.vmScene.add(new THREE.AmbientLight(0x9fb2dd, 0.55));
-    const vmFill = new THREE.DirectionalLight(0xfff4e4, 1.15);
-    vmFill.position.set(0.4, 1.4, 2.2);
-    this.vmScene.add(vmFill);
+    // 原第三盏正面补光折进环境光，武器模型每像素少一盏方向光。
+    this.vmScene.add(new THREE.AmbientLight(0xc8c0b2, 0.95));
   }
 
   _buildSky() {
@@ -738,12 +809,18 @@ export class GameWorld {
         const uSize = (f.u === "w" ? b.w : b.d) / tile;
         const vSize = (f.vv === "h" ? b.h : b.d) / tile;
         const uvs = [[0, 0], [uSize, 0], [uSize, vSize], [0, vSize]];
+        // 侧面按高度烘一条竖向渐变：贴地的底边压暗，模拟墙脚/箱底的接触阴影（伪 AO），
+        // 顶点数不变，运行时零开销。
+        const side = !isGlow && f.n[1] === 0;
+        const footAo = b.y < 0.05 ? 0.7 : 0.86;
         for (let k = 0; k < 6; k++) {
           const idx = tri[k];
           const p = verts[idx];
+          let ao = 1;
+          if (side) ao = p[1] <= b.y + 1e-4 ? footAo : Math.min(1.06, 0.96 + b.h * 0.02);
           g.pos.push(p[0], p[1], p[2]);
           g.nor.push(f.n[0], f.n[1], f.n[2]);
-          g.col.push(r, gg, bb);
+          g.col.push(r * ao, gg * ao, bb * ao);
           if (!isGlow) g.uv.push(uvs[idx][0], uvs[idx][1]);
         }
       }
@@ -781,86 +858,96 @@ export class GameWorld {
     this.scene.add(this.glowMesh);
   }
 
-  _makeSoldier(mats, nameColor) {
-    const geo = {
-      torso: new THREE.BoxGeometry(0.56, 0.6, 0.3),
-      vest: new THREE.BoxGeometry(0.6, 0.3, 0.35),
-      head: new THREE.BoxGeometry(0.3, 0.3, 0.3),
-      helmet: new THREE.BoxGeometry(0.36, 0.12, 0.37),
-      leg: new THREE.BoxGeometry(0.17, 0.82, 0.22),
-      arm: new THREE.BoxGeometry(0.14, 0.5, 0.16),
-      boot: new THREE.BoxGeometry(0.19, 0.13, 0.3),
-      gun: new THREE.BoxGeometry(0.09, 0.11, 0.62),
-      barrel: new THREE.BoxGeometry(0.04, 0.04, 0.3),
-      mag: new THREE.BoxGeometry(0.06, 0.2, 0.1),
-      visor: new THREE.BoxGeometry(0.24, 0.08, 0.02),
-      strip: new THREE.BoxGeometry(0.62, 0.05, 0.36),
-    };
+  _makeSoldier(pal, nameColor) {
+    // 每个刚体部件合并成一个顶点色网格：身体 1 + 发光件 1 + 四肢 4 + 枪 1 = 7 次 draw call
+    // （旧版 15 次），细节反而更多：背心弹匣包、护肩、耳罩、护膝、手套、枪托瞄具等。
+    const { suit, vest, skin, boot, gun, gunDark, accent } = pal;
+    const suitD = tint(suit, 0.8);
+    const vestD = tint(vest, 0.74);
+    const mat = this.soldierMat;
+    const glowMat = this.soldierGlowMat;
+
     const group = new THREE.Group();
     const body = new THREE.Group();
     group.add(body);
 
-    const torso = new THREE.Mesh(geo.torso, mats.suit);
-    torso.position.y = 1.11;
-    body.add(torso);
-    const vest = new THREE.Mesh(geo.vest, mats.vest);
-    vest.position.y = 1.18;
-    body.add(vest);
-    const strip = new THREE.Mesh(geo.strip, mats.accent);
-    strip.position.y = 1.34;
-    body.add(strip);
-    const head = new THREE.Mesh(geo.head, mats.head);
-    head.position.y = 1.56;
-    body.add(head);
-    const helmet = new THREE.Mesh(geo.helmet, mats.suit);
-    helmet.position.y = 1.73;
-    body.add(helmet);
-    const visor = new THREE.Mesh(geo.visor, mats.accent);
-    visor.position.set(0, 1.57, -0.16);
-    body.add(visor);
+    body.add(new THREE.Mesh(partsGeometry([
+      { s: [0.44, 0.2, 0.25], p: [0, 0.87, 0], c: suitD, ao: 0.68 },
+      { s: [0.48, 0.07, 0.28], p: [0, 0.95, 0], c: boot, ao: 0.9 },
+      { s: [0.1, 0.09, 0.06], p: [-0.17, 0.93, -0.14], c: vestD },
+      { s: [0.52, 0.46, 0.27], p: [0, 1.14, 0], c: suit, bot: [0.84, 0.9], ao: 0.7 },
+      { s: [0.56, 0.36, 0.34], p: [0, 1.18, 0], c: vest, top: [0.94, 0.94], ao: 0.68 },
+      { s: [0.13, 0.11, 0.05], p: [-0.15, 1.08, -0.19], c: vestD },
+      { s: [0.13, 0.11, 0.05], p: [0, 1.08, -0.19], c: vestD },
+      { s: [0.13, 0.11, 0.05], p: [0.15, 1.08, -0.19], c: vestD },
+      { s: [0.32, 0.3, 0.1], p: [0, 1.17, 0.2], c: vestD, ao: 0.62 },
+      { s: [0.025, 0.22, 0.025], p: [0.11, 1.42, 0.22], c: gunDark, ao: 1 },
+      { s: [0.17, 0.1, 0.22], p: [-0.3, 1.36, 0], c: vest, top: [0.8, 0.9] },
+      { s: [0.17, 0.1, 0.22], p: [0.3, 1.36, 0], c: vest, top: [0.8, 0.9] },
+      { s: [0.13, 0.08, 0.13], p: [0, 1.4, 0], c: tint(skin, 0.75) },
+      { s: [0.25, 0.27, 0.26], p: [0, 1.56, 0], c: skin, bot: [0.86, 0.9], ao: 0.72 },
+      { s: [0.34, 0.15, 0.35], p: [0, 1.725, 0.005], c: suit, top: [0.76, 0.78], ao: 0.82 },
+      { s: [0.36, 0.05, 0.37], p: [0, 1.655, 0.005], c: suitD, ao: 1 },
+      { s: [0.05, 0.11, 0.11], p: [-0.145, 1.57, 0.01], c: boot },
+      { s: [0.05, 0.11, 0.11], p: [0.145, 1.57, 0.01], c: boot },
+      { s: [0.08, 0.05, 0.04], p: [0, 1.715, -0.18], c: gunDark, ao: 1 },
+    ]), mat));
+    body.add(new THREE.Mesh(partsGeometry([
+      { s: [0.575, 0.035, 0.345], p: [0, 1.33, 0], c: accent, ao: 1 },
+      { s: [0.22, 0.065, 0.02], p: [0, 1.585, -0.14], c: accent, ao: 1 },
+      { s: [0.012, 0.05, 0.1], p: [-0.388, 1.36, 0], c: accent, ao: 1 },
+      { s: [0.012, 0.05, 0.1], p: [0.388, 1.36, 0], c: accent, ao: 1 },
+    ]), glowMat));
 
     const legs = [];
     for (const side of [-1, 1]) {
       const pivot = new THREE.Group();
       pivot.position.set(side * 0.15, 0.82, 0);
-      const leg = new THREE.Mesh(geo.leg, mats.suit);
-      leg.position.y = -0.4;
-      pivot.add(leg);
-      const boot = new THREE.Mesh(geo.boot, mats.boot);
-      boot.position.set(0, -0.76, -0.05);
-      pivot.add(boot);
+      pivot.add(new THREE.Mesh(partsGeometry([
+        { s: [0.18, 0.42, 0.22], p: [0, -0.2, 0], c: suit, bot: [0.86, 0.88], ao: 0.82 },
+        { s: [0.04, 0.12, 0.1], p: [side * 0.095, -0.2, -0.01], c: vestD },
+        { s: [0.15, 0.13, 0.05], p: [0, -0.44, -0.11], c: vest, ao: 0.85 },
+        { s: [0.15, 0.36, 0.18], p: [0, -0.6, 0], c: suitD, bot: [0.9, 0.9], ao: 0.78 },
+        { s: [0.17, 0.12, 0.27], p: [0, -0.765, -0.035], c: boot, ao: 0.75 },
+        { s: [0.172, 0.03, 0.28], p: [0, -0.81, -0.035], c: tint(boot, 0.6), ao: 1 },
+      ]), mat));
       body.add(pivot);
       legs.push(pivot);
     }
 
+    // 手臂朝 -Z（前方）抬起：旧模型 rotation.x 取负值，手臂其实伸在身后。
     const arms = [];
     for (const side of [-1, 1]) {
+      const len = side < 0 ? 0.54 : 0.42;
       const pivot = new THREE.Group();
       pivot.position.set(side * 0.36, 1.34, 0);
-      const arm = new THREE.Mesh(geo.arm, mats.suit);
-      arm.position.y = -0.24;
-      pivot.add(arm);
+      pivot.add(new THREE.Mesh(partsGeometry([
+        { s: [0.14, 0.25, 0.15], p: [0, -0.11, 0], c: suit, bot: [0.88, 0.88], ao: 0.85 },
+        { s: [0.12, 0.07, 0.07], p: [0, -0.25, 0.06], c: vest, ao: 0.9 },
+        { s: [0.12, len - 0.24, 0.13], p: [0, -0.24 - (len - 0.24) / 2, 0], c: suitD, ao: 0.85 },
+        { s: [0.11, 0.1, 0.12], p: [0, -len - 0.03, 0], c: boot, ao: 0.9 },
+      ]), mat));
       body.add(pivot);
       arms.push(pivot);
     }
 
     const gunGroup = new THREE.Group();
-    gunGroup.position.set(0.22, 1.24, -0.34);
-    const gun = new THREE.Mesh(geo.gun, mats.gun);
-    gunGroup.add(gun);
-    const barrel = new THREE.Mesh(geo.barrel, mats.gunDark);
-    barrel.position.set(0, 0.015, -0.43);
-    gunGroup.add(barrel);
-    const mag = new THREE.Mesh(geo.mag, mats.gunDark);
-    mag.position.set(0, -0.14, 0.04);
-    mag.rotation.x = -0.25;
-    gunGroup.add(mag);
+    gunGroup.position.set(0.16, 1.24, -0.34);
+    gunGroup.add(new THREE.Mesh(partsGeometry([
+      { s: [0.075, 0.09, 0.36], p: [0, 0, -0.02], c: gun, ao: 0.8 },
+      { s: [0.07, 0.075, 0.24], p: [0, 0.005, -0.32], c: gunDark, ao: 0.85 },
+      { s: [0.03, 0.03, 0.2], p: [0, 0.015, -0.52], c: gunDark, ao: 1 },
+      { s: [0.045, 0.045, 0.05], p: [0, 0.015, -0.6], c: gun, ao: 1 },
+      { s: [0.055, 0.1, 0.2], p: [0, -0.02, 0.25], c: gunDark, bot: [1, 0.8] },
+      { s: [0.05, 0.12, 0.07], p: [0, -0.1, 0.08], r: [-0.3, 0, 0], c: gunDark },
+      { s: [0.055, 0.17, 0.085], p: [0, -0.12, -0.08], r: [0.2, 0, 0], c: gunDark, ao: 0.7 },
+      { s: [0.04, 0.05, 0.11], p: [0, 0.07, -0.04], c: gunDark, ao: 1 },
+      { s: [0.012, 0.04, 0.014], p: [0, 0.055, -0.42], c: gunDark, ao: 1 },
+    ]), mat));
     body.add(gunGroup);
 
-    arms[1].rotation.x = -1.15;
-    arms[1].rotation.z = -0.2;
-    arms[0].rotation.x = -1.3;
-    arms[0].rotation.z = 0.25;
+    arms[0].rotation.set(1.32, 0, 0.7);
+    arms[1].rotation.set(0.98, 0, -0.5);
 
     const flash = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this.flashTex,
@@ -869,13 +956,13 @@ export class GameWorld {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }));
-    flash.position.set(0, 0.02, -0.64);
+    flash.position.set(0, 0.02, -0.66);
     flash.scale.set(0.5, 0.5, 1);
     flash.visible = false;
     gunGroup.add(flash);
 
     const gunTip = new THREE.Object3D();
-    gunTip.position.set(0, 0.02, -0.62);
+    gunTip.position.set(0, 0.015, -0.63);
     gunGroup.add(gunTip);
 
     const blob = new THREE.Mesh(
@@ -919,29 +1006,21 @@ export class GameWorld {
   }
 
   _buildSoldiers() {
-    const mats = {
-      enemy: {
-        suit: lambert(COLORS.enemyDim),
-        vest: lambert(0x5f3320),
-        head: lambert(0x4a3a2c),
-        boot: lambert(COLORS.boot),
-        accent: basic(0xffa46e),
-        gun: lambert(COLORS.gun),
-        gunDark: lambert(COLORS.gunDark),
-      },
-      friendly: {
-        suit: lambert(COLORS.friendlyDim),
-        vest: lambert(0x22425f),
-        head: lambert(0x35434f),
-        boot: lambert(COLORS.boot),
-        accent: basic(0x63dff5),
-        gun: lambert(COLORS.gun),
-        gunDark: lambert(COLORS.gunDark),
-      },
+    // 1v1 中远端玩家永远是对手：两个槽位都用敌方配色，避免坐 1 号位时看到“友军蓝”的敌人。
+    this.soldierMat = lambert(0xffffff, { vertexColors: true });
+    this.soldierGlowMat = basic(0xffffff, { vertexColors: true });
+    const pal = {
+      suit: COLORS.enemyDim,
+      vest: 0x5a3a26,
+      skin: 0x3a332c,
+      boot: COLORS.boot,
+      gun: 0x4a4c50,
+      gunDark: 0x2e3034,
+      accent: 0xff7a4a,
     };
     this.models = [null, null];
     for (let slot = 0; slot < 2; slot++) {
-      const m = this._makeSoldier(slot === 0 ? mats.friendly : mats.enemy, slot === 0 ? "#63dff5" : "#ffa46e");
+      const m = this._makeSoldier(pal, ENEMY_NAME_COLOR);
       m.group.visible = false;
       this.scene.add(m.group);
       this.models[slot] = m;
@@ -949,17 +1028,26 @@ export class GameWorld {
   }
 
   _buildViewmodel() {
-    const gunMat = lambert(COLORS.gun);
-    const darkMat = lambert(COLORS.gunDark);
-    const accentMat = basic(COLORS.accent);
-    const sleeveMat = lambert(0x40506b);
-    const gloveMat = lambert(0x2a303a);
+    // 每把枪 = 1 个实体网格 + 1 个发光网格（旧版约 14 个网格），细节翻倍：导轨齿、护木散热孔、
+    // 抛壳窗、扳机护圈、红点镜、枪口制退器、手指包裹等，全部烘进顶点色。
+    const GUN = COLORS.gun;
+    const DARK = COLORS.gunDark;
+    const RAIL = 0x26282c;
+    const SLEEVE = 0x4d5242;
+    const GLOVE = 0x2a2926;
+    const ACC = COLORS.accent;
+    const LENS = 0x3f6650;
+    const vmMat = lambert(0xffffff, { vertexColors: true });
+    const vmGlow = basic(0xffffff, { vertexColors: true });
 
-    const box = (w, h, d, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-      mesh.position.set(x, y, z);
-      mesh.rotation.set(rx, ry, rz);
-      return mesh;
+    const B = (w, h, d, c, x, y, z, rx = 0, ry = 0, rz = 0, extra = null) => ({
+      s: [w, h, d], p: [x, y, z], r: [rx, ry, rz], c, ...(extra || {}),
+    });
+    const build = (solid, glow) => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(partsGeometry(solid), vmMat));
+      if (glow.length) g.add(new THREE.Mesh(partsGeometry(glow), vmGlow));
+      return g;
     };
     const addFlash = (parent, x, y, z, size) => {
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -976,52 +1064,115 @@ export class GameWorld {
       parent.add(sprite);
       return sprite;
     };
+    const F = { ao: 1 };
 
-    this.rifleGroup = new THREE.Group();
-    this.rifleGroup.add(box(0.085, 0.1, 0.46, gunMat, 0, 0, -0.06));
-    this.rifleGroup.add(box(0.072, 0.075, 0.3, darkMat, 0, 0.005, -0.38));
-    this.rifleGroup.add(box(0.034, 0.034, 0.34, darkMat, 0, 0.02, -0.66));
-    this.rifleGroup.add(box(0.05, 0.05, 0.06, gunMat, 0, 0.02, -0.84));
-    this.rifleGroup.add(box(0.06, 0.1, 0.2, gunMat, 0, -0.015, 0.26));
-    this.rifleGroup.add(box(0.055, 0.16, 0.1, darkMat, 0, -0.1, 0.02, -0.18));
-    this.rifleGroup.add(box(0.052, 0.13, 0.075, darkMat, 0, -0.09, 0.18, 0.2));
-    this.rifleGroup.add(box(0.035, 0.055, 0.13, darkMat, 0, 0.08, -0.12));
-    this.rifleGroup.add(box(0.012, 0.03, 0.02, accentMat, 0, 0.062, -0.3));
-    this.rifleGroup.add(box(0.02, 0.02, 0.08, accentMat, 0, 0.075, 0.06));
-    this.rifleGroup.add(box(0.16, 0.13, 0.28, sleeveMat, 0.11, -0.22, 0.12, 0.3, -0.5, 0.5));
-    this.rifleGroup.add(box(0.13, 0.12, 0.2, sleeveMat, -0.12, -0.18, -0.26, 0.1, 0.55, -0.45));
-    this.rifleGroup.add(box(0.07, 0.08, 0.1, gloveMat, 0, -0.08, 0.15, 0.2));
-    this.rifleGroup.add(box(0.07, 0.08, 0.1, gloveMat, 0, -0.055, -0.28, 0.1));
+    // ---------- 步枪 ----------
+    const rifle = [
+      B(0.08, 0.055, 0.44, GUN, 0, 0.025, -0.06, 0, 0, 0, { ao: 0.85 }),
+      B(0.07, 0.05, 0.3, tint(GUN, 0.9), 0, -0.025, 0.02),
+      B(0.004, 0.022, 0.07, RAIL, 0.042, 0.025, -0.02, 0, 0, 0, F),
+      B(0.04, 0.012, 0.4, RAIL, 0, 0.058, -0.12, 0, 0, 0, F),
+      B(0.074, 0.074, 0.3, DARK, 0, 0.008, -0.42, 0, 0, 0, { top: [0.9, 1], ao: 0.75 }),
+      B(0.03, 0.03, 0.24, DARK, 0, 0.018, -0.68, 0, 0, 0, F),
+      B(0.04, 0.045, 0.03, DARK, 0, 0.03, -0.6),
+      B(0.012, 0.05, 0.014, DARK, 0, 0.065, -0.6, 0, 0, 0, F),
+      B(0.048, 0.048, 0.07, GUN, 0, 0.018, -0.83, 0, 0, 0, { ao: 0.9 }),
+      B(0.052, 0.052, 0.012, RAIL, 0, 0.018, -0.815, 0, 0, 0, F),
+      B(0.035, 0.035, 0.12, DARK, 0, 0.01, 0.2, 0, 0, 0, F),
+      B(0.058, 0.1, 0.18, GUN, 0, -0.01, 0.3, 0, 0, 0, { bot: [1, 0.85] }),
+      B(0.062, 0.106, 0.02, RAIL, 0, -0.01, 0.395, 0, 0, 0, F),
+      B(0.05, 0.15, 0.085, DARK, 0, -0.1, 0.02, -0.18, 0, 0, { ao: 0.7 }),
+      B(0.056, 0.02, 0.092, RAIL, 0, -0.174, 0.033, -0.18, 0, 0, F),
+      B(0.012, 0.012, 0.07, DARK, 0, -0.058, 0.11, 0, 0, 0, F),
+      B(0.006, 0.03, 0.008, RAIL, 0, -0.045, 0.1, 0, 0, 0, F),
+      B(0.052, 0.13, 0.075, DARK, 0, -0.09, 0.18, 0.2, 0, 0, { ao: 0.75 }),
+      B(0.04, 0.018, 0.08, DARK, 0, 0.073, -0.08, 0, 0, 0, F),
+      B(0.05, 0.048, 0.1, DARK, 0, 0.105, -0.08, 0, 0, 0, { top: [0.9, 0.95], ao: 0.85 }),
+      B(0.03, 0.025, 0.015, DARK, 0, 0.075, 0.08, 0, 0, 0, F),
+      B(0.16, 0.13, 0.28, SLEEVE, 0.11, -0.22, 0.12, 0.3, -0.5, 0.5, { ao: 0.7 }),
+      B(0.13, 0.12, 0.2, SLEEVE, -0.12, -0.18, -0.26, 0.1, 0.55, -0.45, { ao: 0.7 }),
+      B(0.07, 0.08, 0.1, GLOVE, 0, -0.08, 0.15, 0.2),
+      B(0.02, 0.018, 0.06, GLOVE, 0.025, -0.045, 0.1, 0, 0, 0, F),
+      B(0.07, 0.08, 0.1, GLOVE, 0, -0.055, -0.28, 0.1),
+      B(0.082, 0.03, 0.07, tint(GLOVE, 1.18), 0, -0.02, -0.3, 0, 0, 0, F),
+    ];
+    for (let i = 0; i < 6; i++) rifle.push(B(0.046, 0.008, 0.014, RAIL, 0, 0.067, -0.29 + i * 0.065, 0, 0, 0, F));
+    for (const z of [-0.34, -0.42, -0.5]) {
+      for (const sx of [-1, 1]) rifle.push(B(0.004, 0.02, 0.045, RAIL, sx * 0.0365, 0.004, z, 0, 0, 0, F));
+    }
+    this.rifleGroup = build(rifle, [
+      B(0.004, 0.008, 0.16, ACC, -0.0415, 0.035, -0.1, 0, 0, 0, F),
+      B(0.036, 0.03, 0.004, LENS, 0, 0.108, -0.131, 0, 0, 0, F),
+      B(0.036, 0.03, 0.004, LENS, 0, 0.108, -0.029, 0, 0, 0, F),
+    ]);
     this.vmFlashes = {};
     this.vmFlashes.rifle = addFlash(this.rifleGroup, 0, 0.02, -0.92, 0.34);
 
-    this.pistolGroup = new THREE.Group();
-    this.pistolGroup.add(box(0.065, 0.085, 0.3, gunMat, 0, 0.01, -0.1));
-    this.pistolGroup.add(box(0.045, 0.045, 0.1, darkMat, 0, 0.02, -0.28));
-    this.pistolGroup.add(box(0.05, 0.16, 0.09, darkMat, 0, -0.1, 0.02, -0.2));
-    this.pistolGroup.add(box(0.03, 0.04, 0.06, darkMat, 0, 0.065, -0.16));
-    this.pistolGroup.add(box(0.012, 0.022, 0.02, accentMat, 0, 0.058, -0.02));
-    this.pistolGroup.add(box(0.14, 0.12, 0.22, sleeveMat, 0.09, -0.2, 0.1, 0.3, -0.5, 0.5));
-    this.pistolGroup.add(box(0.12, 0.11, 0.18, sleeveMat, -0.1, -0.17, -0.05, 0.1, 0.55, -0.45));
-    this.pistolGroup.add(box(0.065, 0.075, 0.09, gloveMat, 0, -0.08, 0.03));
+    // ---------- 手枪 ----------
+    const pistol = [
+      B(0.062, 0.058, 0.3, GUN, 0, 0.032, -0.1, 0, 0, 0, { ao: 0.85 }),
+      B(0.004, 0.02, 0.06, RAIL, 0.032, 0.04, -0.12, 0, 0, 0, F),
+      B(0.054, 0.038, 0.24, DARK, 0, -0.013, -0.12, 0, 0, 0, { ao: 0.85 }),
+      B(0.03, 0.03, 0.03, RAIL, 0, 0.03, -0.255, 0, 0, 0, F),
+      B(0.04, 0.012, 0.06, RAIL, 0, -0.035, -0.2, 0, 0, 0, F),
+      B(0.05, 0.16, 0.085, DARK, 0, -0.1, 0.02, -0.2, 0, 0, { ao: 0.7 }),
+      B(0.054, 0.1, 0.06, RAIL, 0, -0.1, 0.02, -0.2, 0, 0, F),
+      B(0.054, 0.018, 0.09, RAIL, 0, -0.178, 0.036, -0.2, 0, 0, F),
+      B(0.01, 0.01, 0.06, DARK, 0, -0.045, -0.06, 0, 0, 0, F),
+      B(0.005, 0.025, 0.008, RAIL, 0, -0.04, -0.045, 0, 0, 0, F),
+      B(0.04, 0.016, 0.016, DARK, 0, 0.069, 0.035, 0, 0, 0, F),
+      B(0.01, 0.016, 0.012, DARK, 0, 0.069, -0.235, 0, 0, 0, F),
+      B(0.012, 0.022, 0.03, DARK, 0, 0.03, 0.06, 0, 0, 0, F),
+      B(0.14, 0.12, 0.22, SLEEVE, 0.09, -0.2, 0.1, 0.3, -0.5, 0.5, { ao: 0.7 }),
+      B(0.12, 0.11, 0.18, SLEEVE, -0.1, -0.17, -0.05, 0.1, 0.55, -0.45, { ao: 0.7 }),
+      B(0.065, 0.075, 0.09, GLOVE, 0, -0.08, 0.03),
+      B(0.075, 0.05, 0.06, tint(GLOVE, 1.18), 0, -0.1, 0.0),
+      B(0.02, 0.016, 0.05, GLOVE, 0.026, -0.03, -0.04, 0, 0, 0, F),
+    ];
+    for (const z of [0.0, 0.016, 0.032]) pistol.push(B(0.065, 0.04, 0.006, RAIL, 0, 0.036, z, 0, 0, 0, F));
+    this.pistolGroup = build(pistol, [
+      B(0.007, 0.007, 0.003, ACC, -0.012, 0.07, 0.044, 0, 0, 0, F),
+      B(0.007, 0.007, 0.003, ACC, 0.012, 0.07, 0.044, 0, 0, 0, F),
+      B(0.007, 0.007, 0.003, ACC, 0, 0.072, -0.242, 0, 0, 0, F),
+      B(0.003, 0.006, 0.12, ACC, -0.0325, 0.032, -0.12, 0, 0, 0, F),
+    ]);
     this.vmFlashes.pistol = addFlash(this.pistolGroup, 0, 0.02, -0.36, 0.28);
 
-    this.sniperGroup = new THREE.Group();
-    this.sniperGroup.add(box(0.075, 0.09, 0.72, gunMat, 0, 0, -0.1));
-    this.sniperGroup.add(box(0.06, 0.085, 0.3, gunMat, 0, -0.005, 0.34));
-    this.sniperGroup.add(box(0.028, 0.028, 0.72, darkMat, 0, 0.015, -0.78));
-    this.sniperGroup.add(box(0.05, 0.05, 0.1, gunMat, 0, 0.015, -1.17));
-    this.sniperGroup.add(box(0.045, 0.06, 0.18, darkMat, 0, 0.09, -0.2));
-    this.sniperGroup.add(box(0.055, 0.055, 0.38, darkMat, 0, 0.135, -0.26));
-    this.sniperGroup.add(box(0.065, 0.065, 0.02, basic(0x2b6a8f), 0, 0.135, -0.46));
-    this.sniperGroup.add(box(0.065, 0.065, 0.02, basic(0x2b6a8f), 0, 0.135, -0.06));
-    this.sniperGroup.add(box(0.055, 0.1, 0.1, darkMat, 0, -0.09, 0.06, -0.16));
-    this.sniperGroup.add(box(0.07, 0.045, 0.09, darkMat, 0.075, 0.02, 0.06));
-    this.sniperGroup.add(box(0.012, 0.03, 0.02, accentMat, 0, 0.062, -0.32));
-    this.sniperGroup.add(box(0.16, 0.13, 0.28, sleeveMat, 0.11, -0.22, 0.14, 0.3, -0.5, 0.5));
-    this.sniperGroup.add(box(0.13, 0.12, 0.2, sleeveMat, -0.12, -0.18, -0.32, 0.1, 0.55, -0.45));
-    this.sniperGroup.add(box(0.07, 0.08, 0.1, gloveMat, 0, -0.08, 0.16, 0.2));
-    this.sniperGroup.add(box(0.07, 0.08, 0.1, gloveMat, 0, -0.055, -0.34, 0.1));
+    // ---------- 狙击枪 ----------
+    this.sniperGroup = build([
+      B(0.075, 0.09, 0.72, GUN, 0, 0, -0.1, 0, 0, 0, { ao: 0.8 }),
+      B(0.06, 0.085, 0.3, GUN, 0, -0.005, 0.34, 0, 0, 0, { bot: [1, 0.85] }),
+      B(0.064, 0.09, 0.02, RAIL, 0, -0.005, 0.5, 0, 0, 0, F),
+      B(0.05, 0.035, 0.18, tint(GUN, 1.1), 0, 0.06, 0.3, 0, 0, 0, { ao: 0.9 }),
+      B(0.028, 0.028, 0.72, DARK, 0, 0.015, -0.78, 0, 0, 0, F),
+      B(0.05, 0.05, 0.1, GUN, 0, 0.015, -1.17, 0, 0, 0, { ao: 0.9 }),
+      B(0.056, 0.024, 0.03, RAIL, 0, 0.015, -1.17, 0, 0, 0, F),
+      B(0.045, 0.06, 0.18, DARK, 0, 0.09, -0.2),
+      B(0.055, 0.055, 0.38, DARK, 0, 0.135, -0.26, 0, 0, 0, { ao: 0.9 }),
+      B(0.072, 0.072, 0.08, DARK, 0, 0.135, -0.48, 0, 0, 0, { ao: 0.85 }),
+      B(0.066, 0.066, 0.06, DARK, 0, 0.135, -0.05, 0, 0, 0, { ao: 0.85 }),
+      B(0.07, 0.026, 0.03, RAIL, 0, 0.112, -0.34, 0, 0, 0, F),
+      B(0.07, 0.026, 0.03, RAIL, 0, 0.112, -0.17, 0, 0, 0, F),
+      B(0.032, 0.028, 0.032, RAIL, 0, 0.175, -0.26, 0, 0, 0, F),
+      B(0.028, 0.032, 0.032, RAIL, 0.04, 0.135, -0.26, 0, 0, 0, F),
+      B(0.055, 0.1, 0.1, DARK, 0, -0.09, 0.06, -0.16),
+      B(0.05, 0.045, 0.09, DARK, 0.06, 0.02, 0.06),
+      B(0.07, 0.02, 0.02, DARK, 0.08, 0.03, 0.08, 0, 0, 0, F),
+      B(0.032, 0.032, 0.032, RAIL, 0.115, 0.02, 0.08, 0, 0, 0, F),
+      B(0.05, 0.12, 0.07, DARK, 0, -0.09, -0.12, 0, 0, 0, { ao: 0.7 }),
+      B(0.012, 0.012, 0.08, DARK, 0, -0.058, 0.0, 0, 0, 0, F),
+      B(0.014, 0.014, 0.24, RAIL, -0.022, -0.055, -0.5, 0, 0, 0, F),
+      B(0.014, 0.014, 0.24, RAIL, 0.022, -0.055, -0.5, 0, 0, 0, F),
+      B(0.16, 0.13, 0.28, SLEEVE, 0.11, -0.22, 0.14, 0.3, -0.5, 0.5, { ao: 0.7 }),
+      B(0.13, 0.12, 0.2, SLEEVE, -0.12, -0.18, -0.32, 0.1, 0.55, -0.45, { ao: 0.7 }),
+      B(0.07, 0.08, 0.1, GLOVE, 0, -0.08, 0.16, 0.2),
+      B(0.07, 0.08, 0.1, GLOVE, 0, -0.055, -0.34, 0.1),
+      B(0.084, 0.03, 0.07, tint(GLOVE, 1.18), 0, -0.03, -0.35, 0, 0, 0, F),
+    ], [
+      B(0.06, 0.06, 0.004, LENS, 0, 0.135, -0.522, 0, 0, 0, F),
+      B(0.054, 0.054, 0.004, LENS, 0, 0.135, -0.019, 0, 0, 0, F),
+      B(0.003, 0.008, 0.3, ACC, -0.039, 0.02, -0.1, 0, 0, 0, F),
+    ]);
     this.vmFlashes.sniper = addFlash(this.sniperGroup, 0, 0.015, -1.25, 0.55);
 
     this.weaponGroups = {
@@ -1045,7 +1196,7 @@ export class GameWorld {
     this.tracerPool = [];
     for (let i = 0; i < 18; i++) {
       const mat = new THREE.MeshBasicMaterial({
-        color: 0x9ff4ff,
+        color: 0xffe3a3,
         transparent: true,
         opacity: 0,
         blending: THREE.AdditiveBlending,
@@ -1254,9 +1405,8 @@ export class GameWorld {
 
     if (remote.name && model.name !== remote.name) {
       model.name = remote.name;
-      const color = slot === this.localSlot ? "#63dff5" : "#ffa46e";
       model.nameSprite.material.map?.dispose();
-      model.nameSprite.material.map = nameTexture(remote.name, color);
+      model.nameSprite.material.map = nameTexture(remote.name, ENEMY_NAME_COLOR);
       model.nameSprite.material.needsUpdate = true;
     }
 
@@ -1267,8 +1417,8 @@ export class GameWorld {
     model.legs[0].rotation.x = swing;
     model.legs[1].rotation.x = -swing;
     const aimLift = remote.aiming ? 0.14 : 0;
-    model.arms[0].rotation.x = -1.3 - swing * 0.55 - aimLift;
-    model.arms[1].rotation.x = -1.15 + swing * 0.35 - aimLift;
+    model.arms[0].rotation.x = 1.32 - swing * 0.25 + aimLift;
+    model.arms[1].rotation.x = 0.98 - swing * 0.18 + aimLift;
     model.gunGroup.position.y = 1.24 + (remote.aiming ? 0.045 : 0);
     model.body.position.y = Math.abs(Math.sin(model.walkPhase * 2)) * 0.025 * amt;
 
@@ -1315,7 +1465,7 @@ export class GameWorld {
     t.base = weaponId === "sniper" ? 0.05 : weaponId === "pistol" ? 0.022 : 0.03;
     t.mesh.scale.set(t.base, t.base, len);
     t.mesh.visible = true;
-    t.mat.color.setHex(weaponId === "sniper" ? 0xd9f7ff : friendly ? 0x9ff5ff : 0xffc08a);
+    t.mat.color.setHex(weaponId === "sniper" ? 0xfff4dc : friendly ? 0xffe3a3 : 0xff9a6a);
     t.mat.opacity = 0.85;
     t.life = 0.1;
     t.max = 0.1;

@@ -128,12 +128,12 @@ const PAINT = {
   crate: 0x9a734a,
   crateLight: 0xb58a5c,
   container: 0x4a8f88,
-  containerAlt: 0x76628f,
+  containerAlt: 0x9a5a3c,
   platform: 0x8d97a3,
   pillar: 0x7f8995,
-  accent: 0x22d3ee,
+  accent: 0xf5b83d,
   amber: 0xdf9b5b,
-  violet: 0x7c6cff,
+  violet: 0xd97757, // 品牌陶土色（键名保留以兼容地图描述）
 };
 
 // 地图以“中心件 + 180° 旋转对称件”描述，保证双方出生点公平。
